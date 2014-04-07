@@ -16,6 +16,109 @@ permc_spec = config['linear algebra']['permc_spec']
 use_umfpack = config['linear algebra'].getboolean('use_umfpack')
 
 
+class ErrorControl:
+
+    def __init__(self, TimeStepper, tolerance, iter=1):
+
+        self.TimeStepper = TimeStepper
+        self.tolerance = tolerance
+        self.iter = iter
+        self.last_iter_div = 0
+
+    def __call__(self, nfields, domain):
+
+        self.domain = domain
+        self.timestepper = self.TimeStepper(nfields, domain, extra=2)
+        self.coeff_system_1 = CoeffSystem(nfields, domain)
+        self.coeff_system_2 = CoeffSystem(nfields, domain)
+
+        return self
+
+    def __getattr__(self, attrname):
+        return getattr(self.timestepper, attrname)
+
+    def step(self, solver, dt, wall_time, analysis=True, force=False):
+        """
+        Notes
+        -----
+        Truncation error:
+            ε = C h**(p+1)
+        ==> |X1 - X2| = C h**(p+1) (1 - 2**(-p))
+            (   D   ) = C h**(p+1) (     f     )
+
+        Desired error:
+            τ X hn = C hn**(p+1)
+        ==> (hn / h)**(p+1) = (τ X hn) / (D / f)
+            (hn / h)**p     = f τ / (D / X / h)
+            (hn / h)**p     = f τ / (    R    )
+        ==> hn = safety * h * (f τ / R)**(1/p)
+
+        Where:
+            p  = scheme order
+            h  = current timestep
+            hn = new timestep
+            τ  = tolerance (relative error per unit sim time)
+            X1 = solution after one h step
+            X2 = solution after two h/2 steps
+            X  = scaling magnitudes
+
+        """
+
+        timestepper = self.timestepper
+        CS1 = self.coeff_system_1
+        CS2 = self.coeff_system_2
+
+        order = timestepper.order
+        tolerance = self.tolerance
+
+        iter_div = (solver.iteration + 1) // self.iter
+        scheduled = (iter_div > self.last_iter_div)
+        #print(solver.iteration, scheduled)
+        if (scheduled or force) and (timestepper._iteration >= timestepper._min_iteration):
+            self.last_iter_div = iter_div
+            # Store initial state (X0)
+            np.copyto(CS1.data, solver.state.data)
+            # Compute two half-steps (X2)
+            timestepper.step(solver, dt/2, wall_time, analysis=False)
+            timestepper.step(solver, dt/2, wall_time, analysis=False)
+            np.copyto(CS2.data, solver.state.data)
+            # Revert to initial state (X0)
+            solver.sim_time -= dt
+            np.copyto(solver.state.data, CS1.data)
+            timestepper.rollback(2)
+            # Compute single full-step (X1)
+            timestepper.step(solver, dt, wall_time, analysis=analysis)
+            # X
+            CS1.data[:] = np.maximum(np.maximum(np.abs(CS1.data), np.abs(CS2.data)), np.abs(solver.state.data))
+            # D = |X2 - X1|
+            np.subtract(CS2.data, solver.state.data, out=CS2.data)
+            np.abs(CS2.data, out=CS2.data)
+            #print(np.max(CS2.data.real))
+            #$print(np.abs(solver.state.data))
+            # X = |X1| + |X0-X1|
+            #np.subtract(CS1.data, solver.state.data, out=CS1.data)
+            #np.abs(CS1.data, out=CS1.data)
+            #np.add(CS1.data, np.abs(solver.state.data), out=CS1.data) # memory!
+            #CS1.data[:] = np.maximum(np.maximum(np.abs(solver.state.data), np.abs(CS1.data)), np.abs(CS1.data-solver.state.data))
+            #CS1.data[:] = np.maximum(np.abs(solver.state.data), np.abs(CS1.data))
+            #CS1.data[:] = 0.5*np.abs(solver.state.data) + 1*np.abs(CS1.data-solver.state.data) + 0.5*np.abs(CS1.data)
+            #np.copyto(CS1.data, solver.state.data)
+            #np.abs(CS1.data, out=CS1.data)
+            # Take maximum R = D / X / h
+            #np.divide(CS2.data, CS1.data, out=CS2.data)
+            #print(CS2.data)
+            R = np.nanmax(CS2.data / CS1.data)
+            #R = np.nanmax(CS2.data) / np.nanmax(CS1.data)
+            # Compute new timestep
+            f = (1 - 2**(-order))
+            print(self.domain.distributor.rank, R, np.argmax(CS2.data))
+            dt_new = dt * (f * tolerance / R)**(1/(order+1))
+            # Take minimum new timestop across ranks
+            self.control_dt = dt_new
+        else:
+            timestepper.step(solver, dt, wall_time, analysis=analysis)
+
+
 class MultistepIMEX:
     """
     Base class for implicit-explicit multistep methods.
@@ -51,29 +154,31 @@ class MultistepIMEX:
 
     """
 
-    def __init__(self, nfields, domain):
+    min_iteration = None
+
+    def __init__(self, nfields, domain, extra=0):
 
         self.RHS = CoeffSystem(nfields, domain)
 
         # Create deque for storing recent timesteps
-        N = max(self.amax, self.bmax, self.cmax)
+        N = max(self.amax, self.bmax, self.cmax) + extra
         self.dt = deque([0.]*N)
 
         # Create coefficient systems for multistep history
         self.MX = MX = deque()
         self.LX = LX = deque()
         self.F = F = deque()
-        for j in range(self.amax):
+        for j in range(self.amax + extra):
             MX.append(CoeffSystem(nfields, domain))
-        for j in range(self.bmax):
+        for j in range(self.bmax + extra):
             LX.append(CoeffSystem(nfields, domain))
-        for j in range(self.cmax):
+        for j in range(self.cmax + extra):
             F.append(CoeffSystem(nfields, domain))
 
         # Attributes
         self._iteration = 0
 
-    def step(self, solver, dt, wall_time):
+    def step(self, solver, dt, wall_time, analysis=True):
         """Advance solver by one timestep."""
 
         # Solver references
@@ -101,7 +206,10 @@ class MultistepIMEX:
 
         # Run evaluator
         state.scatter()
-        evaluator.evaluate_scheduled(wall_time, sim_time, iteration)
+        if analysis:
+            evaluator.evaluate_scheduled(wall_time, sim_time, iteration)
+        else:
+            evaluator.evaluate_group('F', wall_time, sim_time, iteration)
 
         # Update RHS components and LHS matrices
         MX.rotate()
@@ -144,6 +252,13 @@ class MultistepIMEX:
         # Update solver
         solver.sim_time += dt
 
+    def rollback(self, iterations):
+        self._iteration -= iterations
+        self.dt.rotate(-iterations)
+        self.LX.rotate(-iterations)
+        self.MX.rotate(-iterations)
+        self.F.rotate(-iterations)
+
 
 class CNAB1(MultistepIMEX):
     """
@@ -157,9 +272,11 @@ class CNAB1(MultistepIMEX):
     amax = 1
     bmax = 1
     cmax = 1
+    order = 1
+    _min_iteration = 0
 
     @classmethod
-    def compute_coefficients(self, timesteps, iteration):
+    def compute_coefficients(self, timesteps, ts_iteration):
 
         a = np.zeros(self.amax+1)
         b = np.zeros(self.bmax+1)
@@ -188,9 +305,11 @@ class SBDF1(MultistepIMEX):
     amax = 1
     bmax = 1
     cmax = 1
+    order = 1
+    _min_iteration = 0
 
     @classmethod
-    def compute_coefficients(self, timesteps, iteration):
+    def compute_coefficients(self, timesteps, ts_iteration):
 
         a = np.zeros(self.amax+1)
         b = np.zeros(self.bmax+1)
@@ -218,12 +337,14 @@ class CNAB2(MultistepIMEX):
     amax = 2
     bmax = 2
     cmax = 2
+    order = 2
+    _min_iteration = 1
 
     @classmethod
-    def compute_coefficients(self, timesteps, iteration):
+    def compute_coefficients(self, timesteps, ts_iteration):
 
-        if iteration < 1:
-            return CNAB1.compute_coefficients(timesteps, iteration)
+        if ts_iteration < self._min_iteration:
+            return CNAB1.compute_coefficients(timesteps, ts_iteration)
 
         a = np.zeros(self.amax+1)
         b = np.zeros(self.bmax+1)
@@ -254,12 +375,14 @@ class MCNAB2(MultistepIMEX):
     amax = 2
     bmax = 2
     cmax = 2
+    order = 2
+    _min_iteration = 1
 
     @classmethod
-    def compute_coefficients(self, timesteps, iteration):
+    def compute_coefficients(self, timesteps, ts_iteration):
 
-        if iteration < 1:
-            return CNAB1.compute_coefficients(timesteps, iteration)
+        if ts_iteration < self._min_iteration:
+            return CNAB1.compute_coefficients(timesteps, ts_iteration)
 
         a = np.zeros(self.amax+1)
         b = np.zeros(self.bmax+1)
@@ -291,12 +414,14 @@ class SBDF2(MultistepIMEX):
     amax = 2
     bmax = 2
     cmax = 2
+    order = 2
+    _min_iteration = 1
 
     @classmethod
-    def compute_coefficients(self, timesteps, iteration):
+    def compute_coefficients(self, timesteps, ts_iteration):
 
-        if iteration < 1:
-            return SBDF1.compute_coefficients(timesteps, iteration)
+        if ts_iteration < self._min_iteration:
+            return SBDF1.compute_coefficients(timesteps, ts_iteration)
 
         a = np.zeros(self.amax+1)
         b = np.zeros(self.bmax+1)
@@ -327,12 +452,14 @@ class CNLF2(MultistepIMEX):
     amax = 2
     bmax = 2
     cmax = 2
+    order = 2
+    _min_iteration = 1
 
     @classmethod
-    def compute_coefficients(self, timesteps, iteration):
+    def compute_coefficients(self, timesteps, ts_iteration):
 
-        if iteration < 1:
-            return CNAB1.compute_coefficients(timesteps, iteration)
+        if ts_iteration < self._min_iteration:
+            return CNAB1.compute_coefficients(timesteps, ts_iteration)
 
         a = np.zeros(self.amax+1)
         b = np.zeros(self.bmax+1)
@@ -364,12 +491,14 @@ class SBDF3(MultistepIMEX):
     amax = 3
     bmax = 3
     cmax = 3
+    order = 3
+    _min_iteration = 2
 
     @classmethod
-    def compute_coefficients(self, timesteps, iteration):
+    def compute_coefficients(self, timesteps, ts_iteration):
 
-        if iteration < 2:
-            return SBDF2.compute_coefficients(timesteps, iteration)
+        if ts_iteration < self._min_iteration:
+            return SBDF2.compute_coefficients(timesteps, ts_iteration)
 
         a = np.zeros(self.amax+1)
         b = np.zeros(self.bmax+1)
@@ -403,12 +532,14 @@ class SBDF4(MultistepIMEX):
     amax = 4
     bmax = 4
     cmax = 4
+    order = 4
+    _min_iteration = 3
 
     @classmethod
-    def compute_coefficients(self, timesteps, iteration):
+    def compute_coefficients(self, timesteps, ts_iteration):
 
-        if iteration < 3:
-            return SBDF3.compute_coefficients(timesteps, iteration)
+        if ts_iteration < self._min_iteration:
+            return SBDF3.compute_coefficients(timesteps, ts_iteration)
 
         a = np.zeros(self.amax+1)
         b = np.zeros(self.bmax+1)
@@ -476,16 +607,19 @@ class RungeKuttaIMEX:
 
     """
 
-    def __init__(self, nfields, domain):
+    _min_iteration = 0
+
+    def __init__(self, nfields, domain, extra=0):
 
         self.RHS = CoeffSystem(nfields, domain)
+        self._iteration = 0
 
-        # Create coefficient systems for multistep history
+        # Create coefficient systems for stages
         self.MX0 = CoeffSystem(nfields, domain)
         self.LX = LX = [CoeffSystem(nfields, domain) for i in range(self.stages)]
         self.F = F = [CoeffSystem(nfields, domain) for i in range(self.stages)]
 
-    def step(self, solver, dt, wall_time):
+    def step(self, solver, dt, wall_time, analysis=True):
         """Advance solver by one timestep."""
 
         # Solver references
@@ -518,7 +652,7 @@ class RungeKuttaIMEX:
 
             # Compute F(n,i-1), L.X(n,i-1)
             state.scatter()
-            if i == 1:
+            if (i == 1) and analysis:
                 evaluator.evaluate_scheduled(wall_time, solver.sim_time, iteration)
             else:
                 evaluator.evaluate_group('F', wall_time, solver.sim_time, iteration)
@@ -544,11 +678,17 @@ class RungeKuttaIMEX:
                 state.set_pencil(p, pX)
             solver.sim_time = sim_time_0 + k*c[i]
 
+        self._iteration += 1
+
+    def rollback(self, iterations):
+        self._iteration -= iterations
+
 
 class RK111(RungeKuttaIMEX):
     """1st-order 1-stage DIRK+ERK scheme [Ascher 1997 sec 2.1]"""
 
     stages = 1
+    order = 1
 
     c = np.array([0, 1])
 
@@ -563,6 +703,7 @@ class RK222(RungeKuttaIMEX):
     """2nd-order 2-stage DIRK+ERK scheme [Ascher 1997 sec 2.6]"""
 
     stages = 2
+    order = 2
 
     γ = (2 - np.sqrt(2)) / 2
     δ = 1 - 1 / γ / 2
@@ -582,6 +723,7 @@ class RK443(RungeKuttaIMEX):
     """3rd-order 4-stage DIRK+ERK scheme [Ascher 1997 sec 2.8]"""
 
     stages = 4
+    order = 3
 
     c = np.array([0, 1/2, 2/3, 1/2, 1])
 
