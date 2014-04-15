@@ -9,10 +9,11 @@ import numpy as np
 from .future import Future
 from .field import Field
 from ..tools.general import OrderedSet
-from ..tools.dispatch import MultiClass
+from ..tools.cache import CachedClass
+from ..tools.dispatch import MultiClass, CachedMultiClass
 
 
-class Operator(Future):
+class Operator(Future, metaclass=CachedClass):
     """
     Base class for deferred operations on fields.
 
@@ -188,7 +189,7 @@ class Operator(Future):
             return Cast(expression, domain)
 
 
-class Cast(Operator, metaclass=MultiClass):
+class Cast(Operator, metaclass=CachedMultiClass):
 
     name = 'Cast'
 
@@ -482,7 +483,7 @@ class Arithmetic(Operator):
         return '(%s)' %self.str_op.join(str_args)
 
 
-class Add(Arithmetic, metaclass=MultiClass):
+class Add(Arithmetic, metaclass=CachedMultiClass):
 
     name = 'Add'
     str_op = ' + '
@@ -562,7 +563,7 @@ class AddNumericField(Add):
         np.add(arg0, arg1.data, out.data)
 
 
-class Subtract(Arithmetic, metaclass=MultiClass):
+class Subtract(Arithmetic, metaclass=CachedMultiClass):
 
     name = 'Sub'
     str_op = ' - '
@@ -642,7 +643,7 @@ class SubNumericField(Subtract):
         np.subtract(arg0, arg1.data, out.data)
 
 
-class Multiply(Arithmetic, metaclass=MultiClass):
+class Multiply(Arithmetic, metaclass=CachedMultiClass):
 
     name = 'Mult'
     str_op = ' * '
@@ -768,7 +769,7 @@ class MultArrayField(Multiply):
         np.multiply(arg0, arg1.data, out.data)
 
 
-class Divide(Arithmetic, metaclass=MultiClass):
+class Divide(Arithmetic, metaclass=CachedMultiClass):
 
     name = 'Div'
     str_op = ' / '
