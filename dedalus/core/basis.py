@@ -1510,3 +1510,61 @@ class Compound(ImplicitBasis):
     @CachedAttribute
     def PrefixBoundary(self):
         return sparse.identity(self.coeff_size, dtype=self.coeff_dtype).tocsr()
+
+
+class Cardinal(TransverseBasis):
+    """Cardinal grid-only basis."""
+
+    separable = True
+    coupled = False
+    element_label= 'n'
+
+    def __init__(self, name, grid, dealias=1):
+        # Attributes
+        self.name = name
+        self.element_name = 'n' + name
+        self._grid = grid.copy()
+        self.base_grid_size = grid.size
+        self.interval = (grid.min(), grid.max())
+        self.dealias = 1
+        self.library = DEFAULT_LIBRARY
+        self.operators = ()
+
+    def default_meta(self):
+        return {'constant': False,
+                'scale': None}
+
+    @property
+    def library(self):
+        return self._library
+
+    @library.setter
+    def library(self, value):
+        self._library = value.lower()
+
+    @CachedMethod
+    def grid(self, scale=1.):
+        """Return grid."""
+        return self._grid
+
+    def set_dtype(self, grid_dtype):
+        """Determine coefficient properties from grid dtype."""
+        # Same dtype
+        self.grid_dtype = np.dtype(grid_dtype)
+        self.coeff_dtype = np.dtype(grid_dtype)
+        # Build elements
+        self.elements = np.arange(self.base_grid_size)
+        self.coeff_size = self.elements.size
+        return self.coeff_dtype
+
+    def forward(self, gdata, cdata, axis, meta):
+        """Grid-to-coefficient transform."""
+        cdata, gdata = self.check_arrays(cdata, gdata, axis, meta)
+        np.copyto(cdata, gdata)
+        return cdata
+
+    def backward(self, cdata, gdata, axis, meta):
+        """Coefficient-to-grid transform."""
+        cdata, gdata = self.check_arrays(cdata, gdata, axis, meta)
+        np.copyto(gdata, cdata)
+        return gdata
