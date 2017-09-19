@@ -101,6 +101,9 @@ class ProblemBase:
     """
 
     def __init__(self, domain, variables, ncc_cutoff=1e-10, max_ncc_terms=None, entry_cutoff=0):
+        for basis in domain.bases[:-1]:
+            if not basis.separable:
+                raise UnsupportedEquationError("Only last dimension may be non-separable.")
         self.domain = domain
         self.variables = variables
         self.nvars = len(variables)

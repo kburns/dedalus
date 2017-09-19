@@ -53,11 +53,14 @@ def build_matrices(pencils, problem, matrices):
     # Build new cachid for NCC expansions
     cacheid = uuid.uuid4()
     # Build test operator dicts to synchronously expand all NCCs
+    if problem.domain.bases[-1].separable:
+        test_index = [0] * problem.domain.dim
+    else:
+        test_index = [0] * (problem.domain.dim - 1)
     for eq in problem.eqs+problem.bcs:
         for matrix in matrices:
             expr, vars = eq[matrix]
             if expr != 0:
-                test_index = [0] * problem.domain.dim
                 expr.operator_dict(test_index, vars, cacheid=cacheid, **problem.ncc_kw)
     # Build matrices
     for pencil in log_progress(pencils, logger, 'info', desc='Building pencil matrix', iter=np.inf, frac=0.1, dt=10):

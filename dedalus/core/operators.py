@@ -710,7 +710,7 @@ class Multiply(Arithmetic, metaclass=MultiClass):
     def operator_dict(self, index, vars, **kw):
         """Produce matrix-operator dictionary over specified variables."""
         out = defaultdict(int)
-        op0 = self.args[0].as_ncc_operator(**kw)
+        op0 = self.args[0].as_ncc_operator(index, **kw)
         op1 = self.args[1].operator_dict(index, vars, **kw)
         for var in op1:
             out[var] = op0 * op1[var]

@@ -14,7 +14,7 @@ from scipy.sparse import linalg as splinalg
 from .metadata import Metadata
 from ..libraries.fftw import fftw_wrappers as fftw
 from ..tools.config import config
-from ..tools.array import reshape_vector
+from ..tools.array import reshape_vector, axslice
 from ..tools.cache import CachedMethod
 from ..tools.exceptions import UndefinedParityError
 from ..tools.exceptions import SymbolicParsingError
@@ -230,7 +230,7 @@ class Scalar(Data):
     def __hash__(self):
         return hash((self.name, self.value))
 
-    def as_ncc_operator(self, **kw):
+    def as_ncc_operator(self, index, **kw):
         """Return self.value."""
         return self.value
 
@@ -288,14 +288,15 @@ class Array(Data):
         np.copyto(self.data, data)
 
     @CachedMethod(max_size=1)
-    def as_ncc_operator(self, cacheid=None, **kw):
-        """Cast to field and convert to NCC operator."""
+    def _ncc_eval(self, cacheid=None):
         from .future import FutureField
         ncc = FutureField.cast(self, self.domain)
-        ncc = ncc.evaluate()
-        if 'name' not in kw:
-            kw['name'] = str(self)
-        return ncc.as_ncc_operator(**kw)
+        return ncc.evaluate()
+
+    def as_ncc_operator(self, index, cacheid=None, **kw):
+        """Convert to operator form representing multiplication as a NCC."""
+        ncc_eval = self._ncc_eval(cacheid=cacheid)
+        return ncc_eval.as_ncc_operator(index, cacheid=cacheid, **kw)
 
 
 class Field(Data):
@@ -540,24 +541,51 @@ class Field(Data):
             return FieldCopy(input, domain)
 
     @CachedMethod(max_size=1)
-    def as_ncc_operator(self, cutoff, max_terms, name=None, cacheid=None):
-        """Convert to operator form representing multiplication as a NCC."""
+    def _local_ncc_data(self, name=None, cacheid=None):
+        """Collect data needed to build local NCC matrices."""
+        from .basis import Cardinal
+        domain = self.domain
+        # Make field with data copied along constant separable dimensions
+        cfield = domain.new_field()
+        cfield['c'] = self['c']
+        cfield.set_scales(1)
+        cfield.require_grid_space()
+        for axis, basis in enumerate(domain.bases):
+            cfield.require_coeff_space(axis)
+            if basis.separable:
+                if self.meta[basis.name]['constant']:
+                    # Broadcast coefficients
+                    cfield.data[axslice(axis, 0, None)] = cfield.data[axslice(axis, 0, 1)]
+                elif not isinstance(basis, Cardinal):
+                    raise ValueError("{} is non-constant along separable direction '{}'.".format(name, basis.name))
+        # Store broadcasted coefficient data
+        cdata = cfield['c'].copy()
+        for axis, basis in enumerate(domain.bases):
+            if basis.separable:
+                if self.meta[basis.name]['constant']:
+                    cdata = cdata[axslice(axis, 0, 1)]
+        return cdata
+
+    @CachedMethod
+    def _local_ncc_matrices(self, index, cutoff, max_terms, name=None, cacheid=None):
+        cdata = self._local_ncc_data(name=name, cacheid=cacheid)
+        coeffs = cdata[index]
+        # Build matrix
         if name is None:
             name = str(self)
-        domain = self.domain
-        for basis in domain.bases:
-            if basis.separable:
-                if not self.meta[basis.name]['constant']:
-                    raise ValueError("{} is non-constant along separable direction '{}'.".format(name, basis.name))
-        basis = domain.bases[-1]
-        coeffs = np.zeros(basis.coeff_size, dtype=basis.coeff_dtype)
-        # Scatter transverse-constant coefficients
-        self.require_coeff_space()
-        if domain.dist.rank == 0:
-            select = (0,) * (domain.dim - 1)
-            np.copyto(coeffs, self.data[select])
-        domain.dist.comm_cart.Bcast(coeffs, root=0)
-        # Build matrix
+        basis = self.domain.bases[-1]
         n_terms, max_term, matrix = basis.NCC(coeffs, cutoff, max_terms)
         logger.debug("Expanded NCC '{}' to mode {} with {} terms.".format(name, max_term, n_terms))
         return matrix
+
+    def as_ncc_operator(self, index, **kw):
+
+        """Convert to operator form representing multiplication as a NCC."""
+        # Determine cindex
+        start = self.domain.distributor.coeff_layout.start(scales=1)[:-1]
+        cindex = np.array(index) - start
+        for axis, basis in enumerate(self.domain.bases):
+            if basis.separable:
+                if self.meta[basis.name]['constant']:
+                    cindex[axis] = 0
+        return self._local_ncc_matrices(tuple(index), **kw)

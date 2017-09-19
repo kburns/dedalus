@@ -206,9 +206,13 @@ class Future(Operand):
         raise NotImplementedError()
 
     @CachedMethod(max_size=1)
-    def as_ncc_operator(self, cacheid=None, **kw):
-        ncc = self.evaluate()
-        return ncc.as_ncc_operator(name=str(self), **kw)
+    def _ncc_eval(self, cacheid=None):
+        return self.evaluate()
+
+    def as_ncc_operator(self, index, cacheid=None, **kw):
+        """Convert to operator form representing multiplication as a NCC."""
+        ncc_eval = self._ncc_eval(cacheid=cacheid)
+        return ncc_eval.as_ncc_operator(index, cacheid=cacheid, **kw)
 
 
 class FutureScalar(Future):
