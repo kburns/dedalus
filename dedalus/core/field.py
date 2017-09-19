@@ -579,7 +579,6 @@ class Field(Data):
         return matrix
 
     def as_ncc_operator(self, index, **kw):
-
         """Convert to operator form representing multiplication as a NCC."""
         # Determine cindex
         start = self.domain.distributor.coeff_layout.start(scales=1)[:-1]
@@ -588,4 +587,4 @@ class Field(Data):
             if basis.separable:
                 if self.meta[basis.name]['constant']:
                     cindex[axis] = 0
-        return self._local_ncc_matrices(tuple(index), **kw)
+        return self._local_ncc_matrices(tuple(cindex), **kw)

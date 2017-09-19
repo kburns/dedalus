@@ -54,9 +54,9 @@ def build_matrices(pencils, problem, matrices):
     cacheid = uuid.uuid4()
     # Build test operator dicts to synchronously expand all NCCs
     if problem.domain.bases[-1].separable:
-        test_index = [0] * problem.domain.dim
+        test_index = list(pencils[0].global_index) + [0]
     else:
-        test_index = [0] * (problem.domain.dim - 1)
+        test_index = list(pencils[0].global_index)
     for eq in problem.eqs+problem.bcs:
         for matrix in matrices:
             expr, vars = eq[matrix]
