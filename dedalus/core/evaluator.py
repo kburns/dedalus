@@ -105,7 +105,7 @@ class Evaluator:
                 handler.last_iter_div = iter_div
 
         self.evaluate_handlers(scheduled_handlers, wall_time=wall_time, sim_time=sim_time, iteration=iteration, **kw)
-        
+
     def evaluate_handlers(self, handlers, id=None, **kw):
         """Evaluate a collection of handlers."""
 

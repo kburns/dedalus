@@ -7,7 +7,7 @@ from collections import deque
 import numpy as np
 from scipy.sparse import linalg
 
-from .system import CoeffSystem, FieldSystem
+from .system import CoeffSystem
 from ..tools.config import config
 
 
@@ -23,8 +23,8 @@ class MultistepIMEX:
 
     Parameters
     ----------
-    nfields : int
-        Number of fields in problem
+    pencil_length : int
+        Number of coefficients in a single pencil
     domain : domain object
         Problem domain
 
@@ -52,9 +52,9 @@ class MultistepIMEX:
 
     """
 
-    def __init__(self, nfields, domain):
+    def __init__(self, pencil_length, domain):
 
-        self.RHS = CoeffSystem(nfields, domain)
+        self.RHS = CoeffSystem(pencil_length, domain)
 
         # Create deque for storing recent timesteps
         N = max(self.amax, self.bmax, self.cmax)
@@ -65,11 +65,11 @@ class MultistepIMEX:
         self.LX = LX = deque()
         self.F = F = deque()
         for j in range(self.amax):
-            MX.append(CoeffSystem(nfields, domain))
+            MX.append(CoeffSystem(pencil_length, domain))
         for j in range(self.bmax):
-            LX.append(CoeffSystem(nfields, domain))
+            LX.append(CoeffSystem(pencil_length, domain))
         for j in range(self.cmax):
-            F.append(CoeffSystem(nfields, domain))
+            F.append(CoeffSystem(pencil_length, domain))
 
         # Attributes
         self._iteration = 0
@@ -466,7 +466,7 @@ class RungeKuttaIMEX:
 
     Parameters
     ----------
-    nfields : int
+    pencil_length : int
         Number of fields in problem
     domain : domain object
         Problem domain
@@ -499,14 +499,14 @@ class RungeKuttaIMEX:
 
     """
 
-    def __init__(self, nfields, domain):
+    def __init__(self, pencil_length, domain):
 
-        self.RHS = CoeffSystem(nfields, domain)
+        self.RHS = CoeffSystem(pencil_length, domain)
 
         # Create coefficient systems for multistep history
-        self.MX0 = CoeffSystem(nfields, domain)
-        self.LX = LX = [CoeffSystem(nfields, domain) for i in range(self.stages)]
-        self.F = F = [CoeffSystem(nfields, domain) for i in range(self.stages)]
+        self.MX0 = CoeffSystem(pencil_length, domain)
+        self.LX = LX = [CoeffSystem(pencil_length, domain) for i in range(self.stages)]
+        self.F = F = [CoeffSystem(pencil_length, domain) for i in range(self.stages)]
 
         self._LHS_params = None
 

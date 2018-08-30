@@ -17,8 +17,8 @@ class CoeffSystem:
 
     Parameters
     ----------
-    nfields : int
-        Number of fields to represent
+    pencil_length : int
+        Number of coefficients in a single pencil
     domain : domain object
         Problem domain
 
@@ -29,12 +29,11 @@ class CoeffSystem:
 
     """
 
-    def __init__(self, nfields, domain):
-
+    def __init__(self, pencil_length, domain):
         # Allocate data for joined coefficients
         # Extend along last axis
         shape = domain.local_coeff_shape.copy()
-        shape[-1] *= nfields
+        shape[-1] = pencil_length
         dtype = domain.dist.coeff_layout.dtype
         self.data = np.zeros(shape, dtype=dtype)
 
@@ -79,7 +78,8 @@ class FieldSystem(CoeffSystem):
         nfields = len(fields)
 
         # Allocate data for joined coefficients
-        super().__init__(nfields, domain)
+        pencil_length = nfields * domain.local_coeff_shape[-1]
+        super().__init__(pencil_length, domain)
 
         # Attributes
         self.domain = domain

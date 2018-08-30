@@ -16,7 +16,7 @@ from scipy.linalg import eig
 from . import operators
 from . import pencil
 from .evaluator import Evaluator
-from .system import CoeffSystem, FieldSystem
+from .system import FieldSystem
 from .field import Scalar, Field
 from ..tools.cache import CachedAttribute
 from ..tools.progress import log_progress
@@ -358,7 +358,8 @@ class InitialValueSolver:
         self.Fb = Fb_handler.build_system()
 
         # Initialize timestepper
-        self.timestepper = timestepper(problem.nvars, domain)
+        pencil_length = problem.nvars * domain.local_coeff_shape[-1]
+        self.timestepper = timestepper(pencil_length, domain)
 
         # Attributes
         self.sim_time = self.initial_sim_time = 0.
@@ -505,7 +506,7 @@ class InitialValueSolver:
 
     def evaluate_handlers_now(self, dt, handlers=None):
         """Evaluate all handlers right now. Useful for writing final outputs.
-        
+
         by default, all handlers are evaluated; if a list is given
         only those will be evaluated.
 
@@ -514,7 +515,7 @@ class InitialValueSolver:
         end_wall_time = end_world_time - self.start_time
         if handlers is None:
             handlers = self.evaluator.handlers
-        
+
         self.evaluator.evaluate_handlers(handlers, timestep=dt, sim_time=self.sim_time, world_time=end_world_time, wall_time=end_wall_time, iteration=self.iteration)
 
 
