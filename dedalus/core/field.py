@@ -206,7 +206,7 @@ class Scalar(Data):
                 parity = 0
             else:
                 parity = 1
-            return {'constant': True, 'parity': parity, 'scale': None}
+            return {'constant': True, 'parity': parity, 'scale': None, 'dirichlet': False}
 
     def __init__(self, value=0, name=None, domain=None):
         from .domain import EmptyDomain
