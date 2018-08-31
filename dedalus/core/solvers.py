@@ -127,8 +127,8 @@ class EigenvalueSolver:
         pencil.build_matrices(self.problem, ['M', 'L'], cacheid=cacheid)
         # Solve as sparse general eigenvalue problem
         self.eigenvalues, self.eigenvectors = scipy_sparse_eigs(A=pencil.L_exp, B=-pencil.M_exp, N=N, target=target, **kw)
-        if pencil.dirichlet:
-            self.eigenvectors = pencil.JD * self.eigenvectors
+        if pencil.pre_right is not None:
+            self.eigenvectors = pencil.pre_right * self.eigenvectors
         self.eigenvalue_pencil = pencil
 
     def set_state(self, index):
@@ -184,14 +184,12 @@ class LinearBoundaryValueSolver:
 
         # Create F operator trees
         self.evaluator = Evaluator(domain, namespace)
-        Fe_handler = self.evaluator.add_system_handler(iter=1, group='F')
-        Fb_handler = self.evaluator.add_system_handler(iter=1, group='F')
+        F_handler = self.evaluator.add_system_handler(iter=1, group='F')
         for eqn in problem.eqs:
-            Fe_handler.add_task(eqn['F'])
+            F_handler.add_task(eqn['F'])
         for bc in problem.bcs:
-            Fb_handler.add_task(bc['F'])
-        self.Fe = Fe_handler.build_system()
-        self.Fb = Fb_handler.build_system()
+            F_handler.add_task(bc['F'])
+        self.F = F_handler.build_system()
 
         logger.debug('Finished LBVP instantiation')
 
@@ -207,16 +205,11 @@ class LinearBoundaryValueSolver:
 
         # Solve system for each pencil, updating state
         for p in self.pencils:
-            pFe = self.Fe.get_pencil(p)
-            pFb = self.Fb.get_pencil(p)
             A = p.L_exp
-            if p.G_bc is None:
-                b = p.G_eq * pFe
-            else:
-                b = p.G_eq * pFe + p.G_bc * pFb
+            b = p.pre_left * self.F.get_pencil(p)
             x = linalg.spsolve(A, b, use_umfpack=USE_UMFPACK, permc_spec=PERMC_SPEC)
-            if p.dirichlet:
-                x = p.JD * x
+            if p.pre_right is not None:
+                x = p.pre_right * x
             self.state.set_pencil(p, x)
         self.state.scatter()
 
@@ -262,14 +255,12 @@ class NonlinearBoundaryValueSolver:
 
         # Create F operator trees
         self.evaluator = Evaluator(domain, namespace)
-        Fe_handler = self.evaluator.add_system_handler(iter=1, group='F')
-        Fb_handler = self.evaluator.add_system_handler(iter=1, group='F')
+        F_handler = self.evaluator.add_system_handler(iter=1, group='F')
         for eqn in problem.eqs:
-            Fe_handler.add_task(eqn['F-L'])
+            F_handler.add_task(eqn['F-L'])
         for bc in problem.bcs:
-            Fb_handler.add_task(bc['F-L'])
-        self.Fe = Fe_handler.build_system()
-        self.Fb = Fb_handler.build_system()
+            F_handler.add_task(bc['F-L'])
+        self.F = F_handler.build_system()
 
         logger.debug('Finished NLBVP instantiation')
 
@@ -281,13 +272,11 @@ class NonlinearBoundaryValueSolver:
         pencil.build_matrices(self.pencils, self.problem, ['dF'])
         # Solve system for each pencil, updating perturbations
         for p in self.pencils:
-            pFe = self.Fe.get_pencil(p)
-            pFb = self.Fb.get_pencil(p)
             A = p.L_exp - p.dF_exp
-            b = p.G_eq * pFe + p.G_bc * pFb
+            b = p.pre_left * self.F.get_pencil(p)
             x = linalg.spsolve(A, b, use_umfpack=USE_UMFPACK, permc_spec=PERMC_SPEC)
-            if p.dirichlet:
-                x = p.JD * x
+            if p.pre_right is not None:
+                x = p.pre_right * x
             self.perturbations.set_pencil(p, x)
         self.perturbations.scatter()
         # Update state
@@ -348,14 +337,12 @@ class InitialValueSolver:
 
         # Create F operator trees
         self.evaluator = Evaluator(domain, namespace)
-        Fe_handler = self.evaluator.add_system_handler(iter=1, group='F')
-        Fb_handler = self.evaluator.add_system_handler(iter=1, group='F')
+        F_handler = self.evaluator.add_system_handler(iter=1, group='F')
         for eqn in problem.eqs:
-            Fe_handler.add_task(eqn['F'])
+            F_handler.add_task(eqn['F'])
         for bc in problem.bcs:
-            Fb_handler.add_task(bc['F'])
-        self.Fe = Fe_handler.build_system()
-        self.Fb = Fb_handler.build_system()
+            F_handler.add_task(bc['F'])
+        self.F = F_handler.build_system()
 
         # Initialize timestepper
         pencil_length = problem.nvars * domain.local_coeff_shape[-1]

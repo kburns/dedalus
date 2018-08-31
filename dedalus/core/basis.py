@@ -204,6 +204,20 @@ class ImplicitBasis(Basis):
         return Fb.tocsr()
 
     @CachedAttribute
+    def DropLastRow(self):
+        """Matrix dropping last row."""
+        N = self.coeff_size
+        DLR = sparse.eye(N-1, N, dtype=self.coeff_dtype, format='csr')
+        return DLR.tocsr()
+
+    @CachedAttribute
+    def DropNonconstantRows(self):
+        """Matrix dropping non-constant rows."""
+        N = self.coeff_size
+        DNR = sparse.eye(1, N, dtype=self.coeff_dtype, format='csr')
+        return DNR.tocsr()
+
+    @CachedAttribute
     def ConstantToBoundary(self):
         """Matrix moving constant coefficient to boundary row."""
         Cb = sparse.lil_matrix((self.coeff_size, self.coeff_size), dtype=self.coeff_dtype)

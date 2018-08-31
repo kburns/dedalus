@@ -73,8 +73,11 @@ class FieldSystem(CoeffSystem):
         domain = unify(field.domain for field in fields)
         # Reorder to put constant fields first
         zbasis = domain.bases[-1]
-        const_fields = [f for f in fields if f.meta[zbasis.name]['constant']]
-        nonconst_fields = [f for f in fields if not f.meta[zbasis.name]['constant']]
+        #const_fields = [f for f in fields if f.meta[zbasis.name]['constant']]
+        #nonconst_fields = [f for f in fields if not f.meta[zbasis.name]['constant']]
+        # PREVENT REORDERING FOR NOW
+        const_fields = []
+        nonconst_fields = fields
         # Allocate data for joined coefficients
         pencil_length = len(const_fields) + len(nonconst_fields) * zbasis.coeff_size
         super().__init__(pencil_length, domain)
@@ -84,9 +87,11 @@ class FieldSystem(CoeffSystem):
         for i, f in enumerate(const_fields):
             self.slices[f] = slice(i, i+1)
         offset = len(const_fields)
-        stride = len(nonconst_fields)
+        #stride = len(nonconst_fields)
+        stride = zbasis.coeff_size
         for i, f in enumerate(nonconst_fields):
-            self.slices[f] = slice(offset+i, None, stride)
+            #self.slices[f] = slice(offset+i, None, stride)
+            self.slices[f] = slice(offset+i*stride, offset+(i+1)*stride, None)
         # Attributes
         self.domain = domain
         self.fields = const_fields + nonconst_fields

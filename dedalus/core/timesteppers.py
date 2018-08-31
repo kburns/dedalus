@@ -82,8 +82,6 @@ class MultistepIMEX:
         pencils = solver.pencils
         evaluator = solver.evaluator
         state = solver.state
-        Fe = solver.Fe
-        Fb = solver.Fb
 
         evaluator_kw = {}
         evaluator_kw['world_time'] = world_time = solver.get_world_time()
@@ -127,15 +125,9 @@ class MultistepIMEX:
 
         for p in pencils:
             x = state.get_pencil(p)
-            pFe = Fe.get_pencil(p)
-            pFb = Fb.get_pencil(p)
-
             MX0.set_pencil(p, p.M*x)
             LX0.set_pencil(p, p.L*x)
-            if p.G_bc is None:
-                F0.set_pencil(p, p.G_eq*pFe)
-            else:
-                F0.set_pencil(p, p.G_eq*pFe + p.G_bc*pFb)
+            F0.set_pencil(p, p.pre_left*solver.F.get_pencil(p))
 
         # Build RHS
         RHS.data.fill(0)
@@ -155,13 +147,13 @@ class MultistepIMEX:
                     p.LHS_LU = linalg.splu(p.LHS.tocsc(), permc_spec=PERMC_SPEC)
                 pLHS = p.LHS_LU
                 pX = pLHS.solve(pRHS)
-                if p.dirichlet:
-                    pX = p.JD * pX
+                if p.pre_right is not None:
+                    pX = p.pre_right * pX
             else:
                 np.copyto(p.LHS.data, a0*p.M_exp.data + b0*p.L_exp.data)
                 pX = linalg.spsolve(p.LHS, pRHS, use_umfpack=USE_UMFPACK, permc_spec=PERMC_SPEC)
-                if p.dirichlet:
-                    pX = p.JD * pX
+                if p.pre_right is not None:
+                    pX = p.pre_right * pX
             state.set_pencil(p, pX)
 
         # Update solver
@@ -517,8 +509,6 @@ class RungeKuttaIMEX:
         pencils = solver.pencils
         evaluator = solver.evaluator
         state = solver.state
-        Fe = solver.Fe
-        Fb = solver.Fb
 
         evaluator_kw = {}
         evaluator_kw['world_time'] = world_time = solver.get_world_time()
@@ -561,13 +551,8 @@ class RungeKuttaIMEX:
                 evaluator.evaluate_group('F', **evaluator_kw)
             for p in pencils:
                 pX = state.get_pencil(p)
-                pFe = Fe.get_pencil(p)
-                pFb = Fb.get_pencil(p)
                 LX[i-1].set_pencil(p, p.L*pX)
-                if p.G_bc is None:
-                    F[i-1].set_pencil(p, p.G_eq*pFe)
-                else:
-                    F[i-1].set_pencil(p, p.G_eq*pFe + p.G_bc*pFb)
+                F[i-1].set_pencil(p, p.pre_left*solver.F.get_pencil(p))
 
             # Construct RHS(n,i)
             np.copyto(RHS.data, MX0.data)
@@ -584,13 +569,13 @@ class RungeKuttaIMEX:
                         p.LHS_LU[i] = linalg.splu(p.LHS.tocsc(), permc_spec=PERMC_SPEC)
                     pLHS = p.LHS_LU[i]
                     pX = pLHS.solve(pRHS)
-                    if p.dirichlet:
-                        pX = p.JD * pX
+                    if p.pre_right is not None:
+                        pX = p.pre_right * pX
                 else:
                     np.copyto(p.LHS.data, p.M_exp.data + (k*H[i,i])*p.L_exp.data)
                     pX = linalg.spsolve(p.LHS, pRHS, use_umfpack=USE_UMFPACK, permc_spec=PERMC_SPEC)
-                    if p.dirichlet:
-                        pX = p.JD * pX
+                    if p.pre_right is not None:
+                        pX = p.pre_right * pX
                 state.set_pencil(p, pX)
             solver.sim_time = sim_time_0 + k*c[i]
 
