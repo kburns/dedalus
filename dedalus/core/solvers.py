@@ -64,7 +64,7 @@ class EigenvalueSolver:
         # Build systems
         namespace = problem.namespace
         vars = [namespace[var] for var in problem.variables]
-        self.state = FieldSystem.from_fields(vars)
+        self.state = FieldSystem(vars)
         # Create F operator trees
         self.evaluator = Evaluator(domain, namespace)
         logger.debug('Finished EVP instantiation')
@@ -180,7 +180,7 @@ class LinearBoundaryValueSolver:
         # Build systems
         namespace = problem.namespace
         vars = [namespace[var] for var in problem.variables]
-        self.state = FieldSystem.from_fields(vars)
+        self.state = FieldSystem(vars)
 
         # Create F operator trees
         self.evaluator = Evaluator(domain, namespace)
@@ -253,8 +253,8 @@ class NonlinearBoundaryValueSolver:
         namespace = problem.namespace
         vars = [namespace[var] for var in problem.variables]
         perts = [namespace['δ'+var] for var in problem.variables]
-        self.state = FieldSystem.from_fields(vars)
-        self.perturbations = FieldSystem.from_fields(perts)
+        self.state = FieldSystem(vars)
+        self.perturbations = FieldSystem(perts)
 
         # Set variable scales back to 1 for initialization
         for field in self.state.fields + self.perturbations.fields:
@@ -343,7 +343,7 @@ class InitialValueSolver:
         # Build systems
         namespace = problem.namespace
         vars = [namespace[var] for var in problem.variables]
-        self.state = FieldSystem.from_fields(vars)
+        self.state = FieldSystem(vars)
         self._sim_time = namespace[problem.time]
 
         # Create F operator trees

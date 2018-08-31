@@ -71,48 +71,49 @@ class FieldSystem(CoeffSystem):
 
     """
 
-    def __init__(self, field_names, domain):
-
-        # Build fields
-        fields = [domain.new_field(name=fn) for fn in field_names]
-        nfields = len(fields)
-
+    def __init__(self, fields):
+        domain = unify(field.domain for field in fields)
+        # Reorder to put constant fields first
+        zbasis = domain.bases[-1]
+        const_fields = [f for f in fields if f.meta[zbasis.name]['constant']]
+        nonconst_fields = [f for f in fields if not f.meta[zbasis.name]['constant']]
         # Allocate data for joined coefficients
-        pencil_length = nfields * domain.local_coeff_shape[-1]
+        pencil_length = len(const_fields) + len(nonconst_fields) * zbasis.coeff_size
         super().__init__(pencil_length, domain)
-
+        # Create slices for each field's data
+        # Group modes, with constant fields first so nonconst fields have fixed stride
+        self.slices = {}
+        for i, f in enumerate(const_fields):
+            self.slices[f] = slice(i, i+1)
+        offset = len(const_fields)
+        stride = len(nonconst_fields)
+        for i, f in enumerate(nonconst_fields):
+            self.slices[f] = slice(offset+i, None, stride)
         # Attributes
         self.domain = domain
-        self.field_names = field_names
-        self.fields = fields
-        self.nfields = nfields
-        self.field_dict = dict(zip(field_names, fields))
+        self.fields = const_fields + nonconst_fields
+        self.field_names = [f.name for f in self.fields]
+        self.nfields = len(self.fields)
+        self.field_dict = dict(zip(self.field_names, self.fields))
 
     def __getitem__(self, name):
         """Return field corresponding to specified name."""
         return self.field_dict[name]
 
-    @classmethod
-    def from_fields(cls, fields):
-        names = [field.name for field in fields]
-        domain = unify(field.domain for field in fields)
-        sys = FieldSystem(names, domain)
-        sys.fields = fields
-        sys.field_dict = dict(zip(names, fields))
-        return sys
-
     def gather(self):
         """Copy fields into system buffer."""
-        stride = self.nfields
-        for start, field in enumerate(self.fields):
+        data = self.data
+        slices = self.slices
+        for field in self.fields:
             field.require_coeff_space()
-            np.copyto(self.data[..., start::stride], field.data)
+            np.copyto(data[..., slices[field]], field.data)
 
     def scatter(self):
         """Extract fields from system buffer."""
-        stride = self.nfields
+        data = self.data
+        slices = self.slices
         coeff_layout = self.domain.dist.coeff_layout
-        for start, field in enumerate(self.fields):
+        for field in self.fields:
             field.layout = coeff_layout
-            np.copyto(field.data, self.data[..., start::stride])
+            np.copyto(field.data, data[..., slices[field]])
 
