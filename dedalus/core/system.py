@@ -5,15 +5,14 @@ Classes for systems of coefficients/fields.
 
 import numpy as np
 
-from ..tools.cache import CachedMethod
 from ..tools.general import unify
 
 
 class CoeffSystem:
     """
     Representation of a collection of fields that don't need to be transformed,
-    and are therefore stored as a contigous set of coefficient data for
-    efficient pencil and group manipulation.
+    and are therefore stored as a contigous set of coefficient data, joined
+    along the last axis, for efficient pencil and group manipulation.
 
     Parameters
     ----------
@@ -31,7 +30,6 @@ class CoeffSystem:
 
     def __init__(self, pencil_length, domain):
         # Allocate data for joined coefficients
-        # Extend along last axis
         shape = domain.local_coeff_shape.copy()
         shape[-1] = pencil_length
         dtype = domain.dist.coeff_layout.dtype
@@ -53,10 +51,8 @@ class FieldSystem(CoeffSystem):
 
     Parameters
     ----------
-    field_names : list of strings
-        Names of fields to build
-    domain : domain object
-        Problem domain
+    fields : list of field objets
+        Fields to join into system
 
     Attributes
     ----------
@@ -68,6 +64,8 @@ class FieldSystem(CoeffSystem):
         Number of fields in system
     field_dict : dict
         Dictionary of fields
+    slices : dict
+        Dictionary of last-axis slice objects connecting field and system data
 
     """
 
