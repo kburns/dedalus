@@ -185,15 +185,17 @@ class Pencil:
         zsize = zbasis.coeff_size
         zdtype = zbasis.coeff_dtype
         compound = hasattr(zbasis, 'subbases')
-        Identity_1 = sparse.identity(1, dtype=zdtype).tocsr()
-        Identity_Nz = sparse.identity(zsize, dtype=zdtype).tocsr()
+        Zero_Nz = sparse.csr_matrix((zsize, zsize), dtype=zdtype)
+        Identity_1 = sparse.identity(1, dtype=zdtype, format='csr')
+        Identity_Nz = sparse.identity(zsize, dtype=zdtype, format='csr')
+        Drop_Nz = sparse.eye(0, zsize, dtype=zdtype, format='csr')
+        DropLastRow_Precondition = zbasis.DropLastRow * zbasis.Precondition
 
         # Build right preconditioner (block diagonal)
         pre_right_diags = []
         for var in problem.variables:
             if problem.meta[var][zbasis.name]['constant']:
                 #PR = Identity_1
-                # FIX
                 PR = Identity_Nz
             elif problem.meta[var][zbasis.name].get('dirichlet'):
                 PR = zbasis.Dirichlet
@@ -206,19 +208,25 @@ class Pencil:
         pre_left_diags = []
         for eq in (problem.eqs + problem.bcs):
 
+            # Drop non-selected equations
+            if eq not in (selected_eqs + selected_bcs):
+                pre_left_diags.append(Drop_Nz)
+                continue
             # Build left preconditioner block
-            differential = eq['differential']
-            PL = Identity_Nz
-            if eq['differential']:
-                PL = zbasis.Precondition * PL
-                PL = zbasis.DropLastRow * PL
+            if eq in problem.bcs:
+                PL = zbasis.DropNonconstantRows
+            elif eq['differential']:
+                PL = DropLastRow_Precondition
+            else:
+                PL = Identity_Nz
             # if compound:
             #     PL = zbasis.DropMatchRows * PL
-            if eq in problem.bcs:
-                PL = zbasis.DropNonconstantRows * PL
             pre_left_diags.append(PL)
 
             # Build left-preconditioned LHS matrix blocks
+            PL_Zero = sparse.csr_matrix(PL.shape, dtype=zdtype)
+            PL_Zero_coo = sparse.coo_matrix(PL.shape, dtype=zdtype)
+            PL_coo = PL.tocoo()
             for name in names:
                 eq_expr, eq_vars = eq[name]
                 if eq_expr != 0:
@@ -229,12 +237,17 @@ class Pencil:
                 for j in range(nvars):
                     # Build equation terms
                     Eij = Ei[eq_vars[j]]
-                    if Eij is 0:
-                        Eij = None
-                    elif Eij is 1:
-                        Eij = PL
+                    if np.isscalar(Eij):
+                        if Eij == 0:
+                            Eij = PL_Zero_coo
+                        elif Eij == 1:
+                            Eij = PL_coo
+                        else:
+                            Eij = PL_coo * Eij
+                    elif PL is Identity_Nz:
+                        Eij = Eij.tocoo()
                     else:
-                        Eij = PL * Eij
+                        Eij = (PL @ Eij).tocoo()
                     eq_blocks.append(Eij)
                 LHS_blocks[name].append(eq_blocks)
 
@@ -248,7 +261,7 @@ class Pencil:
         # Combine blocks
         self.pre_left = sparse.block_diag(pre_left_diags, format='csr', dtype=zdtype)
         self.pre_right = sparse.block_diag(pre_right_diags, format='csr', dtype=zdtype)
-        LHS_matrices = {name: sparse.bmat(LHS_blocks[name], format='csr', dtype=zdtype) for name in names}
+        LHS_matrices = {name: fastblock(LHS_blocks[name]).tocsr() for name in names}
 
         # Store minimal-entry matrices for fast dot products
         for name, matrix in LHS_matrices.items():
@@ -273,3 +286,20 @@ class Pencil:
             matrix = expand_pattern(matrix, self.LHS)
             setattr(self, name+'_exp', matrix.tocsr().copy())
 
+
+def fastblock(blocks):
+    M = len(blocks)
+    N = len(blocks[0])
+    data, row, col = [], [], []
+    i0 = 0
+    for m in range(M):
+        j0 = 0
+        bm = blocks[m]
+        for n in range(N):
+            bmn = bm[n]
+            data.extend(bmn.data)
+            row.extend(bmn.row + i0)
+            col.extend(bmn.col + j0)
+            j0 += bmn.shape[1]
+        i0 += bmn.shape[0]
+    return sparse.coo_matrix((data, (row, col)), shape=(i0, j0))
