@@ -162,9 +162,9 @@ class Pencil:
 
     def _build_coupled_matrices(self, problem, names, cacheid=None):
 
-        global_index = self.global_index
         # Check basic solvability conditions
         # Find applicable equations
+        global_index = self.global_index
         index_dict = {}
         for axis, basis in enumerate(self.domain.bases):
             if basis.separable:
@@ -181,6 +181,7 @@ class Pencil:
         if nbcs != ndiff:
             raise ValueError("Pencil {} has {} boundary conditions for {} differential equations.".format(global_index, nbcs, ndiff))
 
+        # Local references
         zbasis = self.domain.bases[-1]
         zsize = zbasis.coeff_size
         zdtype = zbasis.coeff_dtype
@@ -190,7 +191,7 @@ class Pencil:
         Identity_Nz = sparse.identity(zsize, dtype=zdtype, format='csr')
         Drop_Nz = sparse.eye(0, zsize, dtype=zdtype, format='csr')
 
-        # Build right preconditioner (block diagonal)
+        # Build right preconditioner blocks
         pre_right_diags = []
         for var in problem.variables:
             if problem.meta[var][zbasis.name]['constant']:
@@ -208,9 +209,10 @@ class Pencil:
         for eq in (problem.bcs + problem.eqs):
 
             # Drop non-selected equations
-            if eq not in (selected_eqs + selected_bcs):
+            if eq not in (selected_bcs + selected_eqs):
                 pre_left_diags.append(Drop_Nz)
                 continue
+
             # Build left preconditioner block
             if eq in problem.bcs:
                 PL = zbasis.DropNonconstantRows
@@ -262,9 +264,11 @@ class Pencil:
                 LHS_blocks['L'][nbcs+i][i] = (LHS_blocks['L'][nbcs+i][i] + Match).tocoo()
 
         # Combine blocks
-        self.pre_left = sparse.block_diag(pre_left_diags, format='csr', dtype=zdtype)
-        self.pre_right = sparse.block_diag(pre_right_diags, format='csr', dtype=zdtype)
-        LHS_matrices = {name: fastblock(LHS_blocks[name]).tocsr() for name in names}
+        left_perm = left_permutation(zsize, selected_bcs, selected_eqs)
+        right_perm = right_permutation(zsize, nvars)
+        self.pre_left = left_perm @ sparse.block_diag(pre_left_diags, format='csr', dtype=zdtype)
+        self.pre_right = sparse.block_diag(pre_right_diags, format='csr', dtype=zdtype) @ right_perm.T
+        LHS_matrices = {name: left_perm @ fastblock(LHS_blocks[name], zsize).tocsr() for name in names}
 
         # Store minimal-entry matrices for fast dot products
         for name, matrix in LHS_matrices.items():
@@ -281,7 +285,7 @@ class Pencil:
         # Apply right preconditioning
         if self.pre_right is not None:
             for name in names:
-                LHS_matrices[name] = LHS_matrices[name] * self.pre_right
+                LHS_matrices[name] = LHS_matrices[name] @ self.pre_right
         # Build expanded LHS matrix to store matrix combinations
         self.LHS = zeros_with_pattern(*LHS_matrices.values()).tocsr()
         # Store expanded matrices for fast combination
@@ -290,7 +294,7 @@ class Pencil:
             setattr(self, name+'_exp', matrix.tocsr().copy())
 
 
-def fastblock(blocks):
+def fastblock(blocks, Nz):
     M = len(blocks)
     N = len(blocks[0])
     data, row, col = [], [], []
@@ -306,3 +310,31 @@ def fastblock(blocks):
             j0 += bmn.shape[1]
         i0 += bmn.shape[0]
     return sparse.coo_matrix((data, (row, col)), shape=(i0, j0))
+
+def left_permutation(Nz, bcs, eqs):
+    nbcs = len(bcs)
+    neqs = len(eqs)
+    # Start with BCs
+    perm = list(range(nbcs))
+    # Interleave equations
+    ndiff = nalg = 0
+    for eq in eqs:
+        if eq['differential']:
+            perm.extend(list(neqs + ndiff + neqs*np.arange(Nz-1)))
+            ndiff += 1
+        else:
+            perm.extend(list(nbcs + nalg + neqs*np.arange(Nz)))
+            nalg += 1
+    return sparse_perm(perm)
+
+def right_permutation(Nz, nvars):
+    perm = np.hstack([n + nvars*np.arange(Nz) for n in range(nvars)])
+    return sparse_perm(perm)
+
+def sparse_perm(perm):
+    N = len(perm)
+    data = np.ones(N)
+    row = np.array(perm)
+    col = np.arange(N)
+    return sparse.coo_matrix((data, (row, col)), shape=(N, N)).tocsr()
+
