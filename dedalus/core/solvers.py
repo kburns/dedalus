@@ -185,10 +185,10 @@ class LinearBoundaryValueSolver:
         # Create F operator trees
         self.evaluator = Evaluator(domain, namespace)
         F_handler = self.evaluator.add_system_handler(iter=1, group='F')
-        for eqn in problem.eqs:
-            F_handler.add_task(eqn['F'])
         for bc in problem.bcs:
             F_handler.add_task(bc['F'])
+        for eqn in problem.eqs:
+            F_handler.add_task(eqn['F'])
         self.F = F_handler.build_system()
 
         logger.debug('Finished LBVP instantiation')
@@ -256,10 +256,10 @@ class NonlinearBoundaryValueSolver:
         # Create F operator trees
         self.evaluator = Evaluator(domain, namespace)
         F_handler = self.evaluator.add_system_handler(iter=1, group='F')
-        for eqn in problem.eqs:
-            F_handler.add_task(eqn['F-L'])
         for bc in problem.bcs:
             F_handler.add_task(bc['F-L'])
+        for eqn in problem.eqs:
+            F_handler.add_task(eqn['F-L'])
         self.F = F_handler.build_system()
 
         logger.debug('Finished NLBVP instantiation')
@@ -338,10 +338,10 @@ class InitialValueSolver:
         # Create F operator trees
         self.evaluator = Evaluator(domain, namespace)
         F_handler = self.evaluator.add_system_handler(iter=1, group='F')
-        for eqn in problem.eqs:
-            F_handler.add_task(eqn['F'])
         for bc in problem.bcs:
             F_handler.add_task(bc['F'])
+        for eqn in problem.eqs:
+            F_handler.add_task(eqn['F'])
         self.F = F_handler.build_system()
 
         # Initialize timestepper

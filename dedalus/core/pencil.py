@@ -189,7 +189,6 @@ class Pencil:
         Identity_1 = sparse.identity(1, dtype=zdtype, format='csr')
         Identity_Nz = sparse.identity(zsize, dtype=zdtype, format='csr')
         Drop_Nz = sparse.eye(0, zsize, dtype=zdtype, format='csr')
-        DropLastRow_Precondition = zbasis.DropLastRow * zbasis.Precondition
 
         # Build right preconditioner (block diagonal)
         pre_right_diags = []
@@ -206,7 +205,7 @@ class Pencil:
         # Build matrices
         LHS_blocks = {name: [] for name in names}
         pre_left_diags = []
-        for eq in (problem.eqs + problem.bcs):
+        for eq in (problem.bcs + problem.eqs):
 
             # Drop non-selected equations
             if eq not in (selected_eqs + selected_bcs):
@@ -215,12 +214,14 @@ class Pencil:
             # Build left preconditioner block
             if eq in problem.bcs:
                 PL = zbasis.DropNonconstantRows
+            elif eq['differential'] and compound:
+                PL = zbasis.DropLastRow @ zbasis.FilterMatchRows @ zbasis.Precondition
             elif eq['differential']:
-                PL = DropLastRow_Precondition
+                PL = zbasis.DropLastRow @ zbasis.Precondition
+            elif compound:
+                PL = zbasis.FilterMatchRows
             else:
                 PL = Identity_Nz
-            # if compound:
-            #     PL = zbasis.DropMatchRows * PL
             pre_left_diags.append(PL)
 
             # Build left-preconditioned LHS matrix blocks
@@ -251,12 +252,14 @@ class Pencil:
                     eq_blocks.append(Eij)
                 LHS_blocks[name].append(eq_blocks)
 
-        # if compound and 'L' in names:
-        #     # Add match terms
-        #     L = LHS['L']
-        #     δM = np.identity(nvars)
-        #     L = L + kron(Ra*M, δM)
-        #     LHS['L'] = L
+        # Add match terms
+        if compound and ('L' in names):
+            for i, eq in enumerate(selected_eqs):
+                if eq['differential']:
+                    Match = zbasis.DropLastRow @ zbasis.Match
+                else:
+                    Match = zbasis.Match
+                LHS_blocks['L'][nbcs+i][i] = (LHS_blocks['L'][nbcs+i][i] + Match).tocoo()
 
         # Combine blocks
         self.pre_left = sparse.block_diag(pre_left_diags, format='csr', dtype=zdtype)
