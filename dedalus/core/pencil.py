@@ -264,11 +264,11 @@ class Pencil:
                 LHS_blocks['L'][nbcs+i][i] = (LHS_blocks['L'][nbcs+i][i] + Match).tocoo()
 
         # Combine blocks
-        left_perm = left_permutation(zsize, selected_bcs, selected_eqs)
-        right_perm = right_permutation(zsize, nvars)
-        self.pre_left = left_perm @ sparse.block_diag(pre_left_diags, format='csr', dtype=zdtype)
-        self.pre_right = sparse.block_diag(pre_right_diags, format='csr', dtype=zdtype) @ right_perm.T
-        LHS_matrices = {name: left_perm @ fastblock(LHS_blocks[name], zsize).tocsr() for name in names}
+        self.left_perm = left_permutation(zsize, selected_bcs, selected_eqs)
+        self.right_perm = right_permutation(zsize, nvars)
+        self.pre_left = self.left_perm @ sparse.block_diag(pre_left_diags, format='csr', dtype=zdtype)
+        self.pre_right = sparse.block_diag(pre_right_diags, format='csr', dtype=zdtype) @ self.right_perm.T
+        LHS_matrices = {name: self.left_perm @ fastblock(LHS_blocks[name], zsize).tocsr() for name in names}
 
         # Store minimal-entry matrices for fast dot products
         for name, matrix in LHS_matrices.items():
@@ -325,16 +325,17 @@ def left_permutation(Nz, bcs, eqs):
         else:
             perm.extend(list(nbcs + nalg + neqs*np.arange(Nz)))
             nalg += 1
-    return sparse_perm(perm)
+    return sparse_perm(perm, len(perm))
 
 def right_permutation(Nz, nvars):
     perm = np.hstack([n + nvars*np.arange(Nz) for n in range(nvars)])
-    return sparse_perm(perm)
+    return sparse_perm(perm, len(perm))
 
-def sparse_perm(perm):
+def sparse_perm(perm, M):
+    """Sparse permutation matrix from permutation vector."""
     N = len(perm)
     data = np.ones(N)
     row = np.array(perm)
     col = np.arange(N)
-    return sparse.coo_matrix((data, (row, col)), shape=(N, N)).tocsr()
+    return sparse.coo_matrix((data, (row, col)), shape=(M, N)).tocsr()
 
