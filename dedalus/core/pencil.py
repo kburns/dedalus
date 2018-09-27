@@ -206,6 +206,22 @@ class Pencil:
         # Build matrices
         LHS_blocks = {name: [] for name in names}
         pre_left_diags = []
+
+        # Start with match terms
+        if compound:
+            # Add match matrices to L for all variables
+            if 'L' in names:
+                Match = zbasis.MatchRows.tocoo()
+                ZeroMatch = (0 * zbasis.MatchRows).tocoo()
+                eq_blocks = [ZeroMatch] * nvars
+                for i in range(nvars):
+                    eq_blocks[i] = Match
+                    LHS_blocks['L'].append(eq_blocks.copy())
+                    eq_blocks[i] = ZeroMatch
+            # Add columns to left preconditioner to produce empty RHS rows
+            pre_left_diags.append(sparse.coo_matrix((M, N), zdtype))
+
+        # Build matrices
         for eq in (problem.bcs + problem.eqs):
 
             # Drop non-selected equations
@@ -253,15 +269,6 @@ class Pencil:
                         Eij = (PL @ Eij).tocoo()
                     eq_blocks.append(Eij)
                 LHS_blocks[name].append(eq_blocks)
-
-        # Add match terms
-        if compound and ('L' in names):
-            for i, eq in enumerate(selected_eqs):
-                if eq['differential']:
-                    Match = zbasis.DropLastRow @ zbasis.Match
-                else:
-                    Match = zbasis.Match
-                LHS_blocks['L'][nbcs+i][i] = (LHS_blocks['L'][nbcs+i][i] + Match).tocoo()
 
         # Combine blocks
         self.left_perm = left_permutation(zsize, selected_bcs, selected_eqs)
