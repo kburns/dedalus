@@ -197,13 +197,6 @@ class ImplicitBasis(Basis):
         raise NotImplementedError()
 
     @CachedAttribute
-    def FilterBoundaryRow(self):
-        """Matrix filtering boundary row."""
-        Fb = sparse.identity(self.coeff_size, dtype=self.coeff_dtype, format='lil')
-        Fb[self.boundary_row, self.boundary_row] = 0
-        return Fb.tocsr()
-
-    @CachedAttribute
     def DropLastRow(self):
         """Matrix dropping last row."""
         N = self.coeff_size
@@ -216,22 +209,6 @@ class ImplicitBasis(Basis):
         N = self.coeff_size
         DNR = sparse.eye(1, N, dtype=self.coeff_dtype, format='csr')
         return DNR.tocsr()
-
-    @CachedAttribute
-    def ConstantToBoundary(self):
-        """Matrix moving constant coefficient to boundary row."""
-        Cb = sparse.lil_matrix((self.coeff_size, self.coeff_size), dtype=self.coeff_dtype)
-        Cb[self.boundary_row, 0] = 1
-        return Cb.tocsr()
-
-    @CachedAttribute
-    def PrefixBoundary(self):
-        """Matrix moving boundary row to first row."""
-        cols = np.roll(np.arange(self.coeff_size), -self.boundary_row)
-        rows = np.arange(self.coeff_size)
-        data = np.ones(self.coeff_size)
-        Pb = sparse.coo_matrix((data, (rows, cols)), dtype=self.coeff_dtype)
-        return Pb.tocsr()
 
     def NCC(self, coeffs, cutoff, max_terms):
         """Build NCC multiplication matrix."""
@@ -265,6 +242,7 @@ class Chebyshev(ImplicitBasis):
         self._problem_coord = lambda xn: center + (xn * radius)
 
         # Attributes
+        self.subbases = [self]
         self.name = name
         self.element_name = 'T' + name
         self.base_grid_size = base_grid_size
@@ -1494,33 +1472,32 @@ class Compound(ImplicitBasis):
         return n_terms, max_term, matrix
 
     @CachedAttribute
-    def FilterMatchRows(self):
-        """Matrix filtering match rows."""
-        Fm = sparse.identity(self.coeff_size, dtype=self.coeff_dtype, format='lil')
-        for i in range(len(self.subbases) - 1):
-            basis1 = self.subbases[i]
-            s1 = self.coeff_start(i)
-            r = s1 + basis1.boundary_row
-            Fm[r, r] = 0
-        return Fm.tocsr()
+    def DropMatchRows(self):
+        """Matrix dropping last row from each subbasis."""
+        sizes = [subbasis.coeff_size for subbasis in self.subbases]
+        blocks = [sparse.eye(n-1, n, dtype=self.coeff_dtype) for n in sizes[:-1]]
+        blocks.append(sparse.eye(sizes[-1], sizes[-1], dtype=self.coeff_dtype))
+        return sparse.block_diag(blocks, format='csr')
 
     @CachedAttribute
-    def Match(self):
+    def DropLastRows(self):
+        """Matrix dropping last row from each subbasis."""
+        sizes = [subbasis.coeff_size for subbasis in self.subbases]
+        blocks = [sparse.eye(n-1, n, dtype=self.coeff_dtype) for n in sizes]
+        return sparse.block_diag(blocks, format='csr')
+
+    @CachedAttribute
+    def MatchRows(self):
         """Matrix matching subbases."""
+        nsub = len(self.subbases)
         size = self.coeff_size
-        Match = sparse.lil_matrix((size, size), dtype=self.coeff_dtype)
+        Match = sparse.lil_matrix((nsub-1, size), dtype=self.coeff_dtype)
         for i in range(len(self.subbases) - 1):
             basis1 = self.subbases[i]
             basis2 = self.subbases[i+1]
             s1 = self.coeff_start(i)
             e1 = s2 = self.coeff_start(i+1)
             e2 = self.coeff_start(i+2)
-            r = s1 + basis1.boundary_row
-            x = basis1.interval[-1]
-            Match[r, s1:e1] = basis1.Interpolate._interp_vector('right')
-            Match[r, s2:e2] = -basis2.Interpolate._interp_vector('left')
+            Match[i, s1:e1] = basis1.Interpolate._interp_vector('right')
+            Match[i, s2:e2] = -basis2.Interpolate._interp_vector('left')
         return Match.tocsr()
-
-    @CachedAttribute
-    def PrefixBoundary(self):
-        return sparse.identity(self.coeff_size, dtype=self.coeff_dtype).tocsr()

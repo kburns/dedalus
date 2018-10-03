@@ -185,7 +185,7 @@ class Pencil:
         zbasis = self.domain.bases[-1]
         zsize = zbasis.coeff_size
         zdtype = zbasis.coeff_dtype
-        compound = hasattr(zbasis, 'subbases')
+        compound = len(zbasis.subbases) > 1
         Zero_Nz = sparse.csr_matrix((zsize, zsize), dtype=zdtype)
         Identity_1 = sparse.identity(1, dtype=zdtype, format='csr')
         Identity_Nz = sparse.identity(zsize, dtype=zdtype, format='csr')
@@ -209,17 +209,20 @@ class Pencil:
 
         # Start with match terms
         if compound:
+            # Add empty match rows for all matrices
+            Match = zbasis.MatchRows.tocoo()
+            ZeroMatch = (0 * zbasis.MatchRows).tocoo()
+            eq_blocks = [ZeroMatch] * nvars
+            for name in names:
+                for i in range(nvars):
+                    LHS_blocks[name].append(eq_blocks.copy())
             # Add match matrices to L for all variables
             if 'L' in names:
-                Match = zbasis.MatchRows.tocoo()
-                ZeroMatch = (0 * zbasis.MatchRows).tocoo()
-                eq_blocks = [ZeroMatch] * nvars
                 for i in range(nvars):
-                    eq_blocks[i] = Match
-                    LHS_blocks['L'].append(eq_blocks.copy())
-                    eq_blocks[i] = ZeroMatch
+                    LHS_blocks['L'][i][i] = Match
             # Add columns to left preconditioner to produce empty RHS rows
-            pre_left_diags.append(sparse.coo_matrix((M, N), zdtype))
+            nmatch = nvars * (len(zbasis.subbases) - 1)
+            pre_left_diags.append(sparse.coo_matrix((nmatch, 0), zdtype))
 
         # Build matrices
         for eq in (problem.bcs + problem.eqs):
@@ -233,11 +236,11 @@ class Pencil:
             if eq in problem.bcs:
                 PL = zbasis.DropNonconstantRows
             elif eq['differential'] and compound:
-                PL = zbasis.DropLastRow @ zbasis.FilterMatchRows @ zbasis.Precondition
+                PL = zbasis.DropLastRows @ zbasis.Precondition
             elif eq['differential']:
                 PL = zbasis.DropLastRow @ zbasis.Precondition
             elif compound:
-                PL = zbasis.FilterMatchRows
+                PL = zbasis.DropMatchRows
             else:
                 PL = Identity_Nz
             pre_left_diags.append(PL)
@@ -271,11 +274,11 @@ class Pencil:
                 LHS_blocks[name].append(eq_blocks)
 
         # Combine blocks
-        self.left_perm = left_permutation(zsize, selected_bcs, selected_eqs)
-        self.right_perm = right_permutation(zsize, nvars)
+        self.left_perm = left_permutation(zbasis, selected_bcs, selected_eqs)
+        self.right_perm = right_permutation(zbasis, problem.variables)
         self.pre_left = self.left_perm @ sparse.block_diag(pre_left_diags, format='csr', dtype=zdtype)
-        self.pre_right = sparse.block_diag(pre_right_diags, format='csr', dtype=zdtype) @ self.right_perm.T
-        LHS_matrices = {name: self.left_perm @ fastblock(LHS_blocks[name], zsize).tocsr() for name in names}
+        self.pre_right = sparse.block_diag(pre_right_diags, format='csr', dtype=zdtype) @ self.right_perm
+        LHS_matrices = {name: self.left_perm @ fastblock(LHS_blocks[name]).tocsr() for name in names}
 
         # Store minimal-entry matrices for fast dot products
         for name, matrix in LHS_matrices.items():
@@ -301,7 +304,8 @@ class Pencil:
             setattr(self, name+'_exp', matrix.tocsr().copy())
 
 
-def fastblock(blocks, Nz):
+def fastblock(blocks):
+    """Build sparse matrix from sparse COO blocks."""
     M = len(blocks)
     N = len(blocks[0])
     data, row, col = [], [], []
@@ -318,31 +322,87 @@ def fastblock(blocks, Nz):
         i0 += bmn.shape[0]
     return sparse.coo_matrix((data, (row, col)), shape=(i0, j0))
 
-def left_permutation(Nz, bcs, eqs):
-    nbcs = len(bcs)
-    neqs = len(eqs)
-    # Start with BCs
-    perm = list(range(nbcs))
-    # Interleave equations
-    ndiff = nalg = 0
-    for eq in eqs:
-        if eq['differential']:
-            perm.extend(list(neqs + ndiff + neqs*np.arange(Nz-1)))
-            ndiff += 1
-        else:
-            perm.extend(list(nbcs + nalg + neqs*np.arange(Nz)))
-            nalg += 1
-    return sparse_perm(perm, len(perm))
-
-def right_permutation(Nz, nvars):
-    perm = np.hstack([n + nvars*np.arange(Nz) for n in range(nvars)])
-    return sparse_perm(perm, len(perm))
 
 def sparse_perm(perm, M):
-    """Sparse permutation matrix from permutation vector."""
+    """Build sparse permutation matrix from permutation vector."""
     N = len(perm)
     data = np.ones(N)
     row = np.array(perm)
     col = np.arange(N)
     return sparse.coo_matrix((data, (row, col)), shape=(M, N)).tocsr()
+
+
+def left_permutation(zbasis, bcs, eqs):
+    """
+    Left permutation keeping match and BCs first, and inverting equation nesting:
+        Input: Equations > Subbases > modes
+        Output: Modes > Subbases > Equations
+    """
+    nbcs = len(bcs)
+    neqs = len(eqs)
+    nmatch = neqs * (len(zbasis.subbases) - 1)
+    # Compute list heirarchy of indeces
+    i = i0 = nmatch + nbcs
+    L0 = []
+    for eq in eqs:
+        L1 = []
+        for subbasis in zbasis.subbases:
+            L2 = []
+            if (subbasis is zbasis.subbases[-1]) and (not eq['differential']):
+                coeff_size = subbasis.coeff_size
+            else:
+                coeff_size = subbasis.coeff_size - 1
+            for coeff in range(coeff_size):
+                L2.append(i)
+                i += 1
+            L1.append(L2)
+        L0.append(L1)
+    # Reverse list hierarchy
+    indeces = []
+    for i in range(i0):
+        indeces.append(i)
+    n1max = len(L0)
+    n2max = max(len(L1) for L1 in L0)
+    n3max = max(len(L2) for L1 in L0 for L2 in L1)
+    for n3 in range(n3max):
+        for n2 in range(n2max):
+            for n1 in range(n1max):
+                try:
+                    indeces.append(L0[n1][n2][n3])
+                except IndexError:
+                    continue
+    return sparse_perm(indeces, len(indeces)).T
+
+
+def right_permutation(zbasis, variables):
+    """
+    Right permutation inverting variable nesting:
+        Input: Variables > Subbases > modes
+        Output: Modes > Subbases > Variables
+    """
+    # Compute list heirarchy of indeces
+    i = 0
+    L0 = []
+    for var in variables:
+        L1 = []
+        for subbasis in zbasis.subbases:
+            L2 = []
+            for coeff in range(subbasis.coeff_size):
+                L2.append(i)
+                i += 1
+            L1.append(L2)
+        L0.append(L1)
+    # Reverse list hierarchy
+    indeces = []
+    L1max = len(L0)
+    L2max = max(len(L1) for L1 in L0)
+    L3max = max(len(L2) for L2 in L1 for L1 in L0)
+    for n3 in range(L3max):
+        for n2 in range(L2max):
+            for n1 in range(L1max):
+                try:
+                    indeces.append(L0[n1][n2][n3])
+                except IndexError:
+                    continue
+    return sparse_perm(indeces, len(indeces))
 
