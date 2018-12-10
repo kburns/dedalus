@@ -71,30 +71,18 @@ class FieldSystem(CoeffSystem):
 
     def __init__(self, fields):
         domain = unify(field.domain for field in fields)
-        # Reorder to put constant fields first
         zbasis = domain.bases[-1]
-        #const_fields = [f for f in fields if f.meta[zbasis.name]['constant']]
-        #nonconst_fields = [f for f in fields if not f.meta[zbasis.name]['constant']]
-        # PREVENT REORDERING FOR NOW
-        const_fields = []
-        nonconst_fields = fields
         # Allocate data for joined coefficients
-        pencil_length = len(const_fields) + len(nonconst_fields) * zbasis.coeff_size
+        pencil_length = len(fields) * zbasis.coeff_size
         super().__init__(pencil_length, domain)
         # Create slices for each field's data
-        # Group modes, with constant fields first so nonconst fields have fixed stride
         self.slices = {}
-        for i, f in enumerate(const_fields):
-            self.slices[f] = slice(i, i+1)
-        offset = len(const_fields)
-        #stride = len(nonconst_fields)
         stride = zbasis.coeff_size
-        for i, f in enumerate(nonconst_fields):
-            #self.slices[f] = slice(offset+i, None, stride)
-            self.slices[f] = slice(offset+i*stride, offset+(i+1)*stride, None)
+        for i, f in enumerate(fields):
+            self.slices[f] = slice(i*stride, (i+1)*stride, None)
         # Attributes
         self.domain = domain
-        self.fields = const_fields + nonconst_fields
+        self.fields = fields
         self.field_names = [f.name for f in self.fields]
         self.nfields = len(self.fields)
         self.field_dict = dict(zip(self.field_names, self.fields))
