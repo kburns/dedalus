@@ -233,7 +233,7 @@ class Pencil:
                 continue
 
             # Build left preconditioner block
-            if eq in problem.bcs:
+            if eq['LHS'].meta[zbasis.name]['constant']:
                 PL = zbasis.DropNonconstantRows
             elif eq['differential'] and compound:
                 PL = zbasis.DropLastRows @ zbasis.Precondition

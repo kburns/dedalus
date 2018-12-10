@@ -51,13 +51,14 @@ domain = de.Domain([x_basis], np.float64)
 # Setup problem
 problem = de.NLBVP(domain, variables=['f', 'fx', 'R'], ncc_cutoff=ncc_cutoff)
 problem.meta[:]['x']['dirichlet'] = True
+problem.meta['R']['x']['constant'] = True
 problem.parameters['n'] = n
 problem.add_equation("x*dx(fx) + 2*fx = -x*(R**2)*(f**n)")
 problem.add_equation("fx - dx(f) = 0")
-problem.add_equation("dx(R) = 0")
+problem.add_equation("right(f) = 0")
 problem.add_bc("left(f) = 1")
 problem.add_bc("left(fx) = 0")
-problem.add_bc("right(f) = 0")
+#problem.add_bc("right(f) = 0")
 
 # Setup initial guess
 solver = problem.build_solver()
