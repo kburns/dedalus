@@ -195,8 +195,7 @@ class Pencil:
         pre_right_diags = []
         for var in problem.variables:
             if problem.meta[var][zbasis.name]['constant']:
-                #PR = Identity_1
-                PR = Identity_Nz
+                PR = zbasis.DropNonconstantRows.T
             elif problem.meta[var][zbasis.name].get('dirichlet'):
                 PR = zbasis.Dirichlet
             else:
@@ -275,9 +274,11 @@ class Pencil:
 
         # Combine blocks
         self.left_perm = left_permutation(zbasis, selected_bcs, selected_eqs)
-        self.right_perm = right_permutation(zbasis, problem.variables)
-        self.pre_left = self.left_perm @ sparse.block_diag(pre_left_diags, format='csr', dtype=zdtype)
-        self.pre_right = sparse.block_diag(pre_right_diags, format='csr', dtype=zdtype) @ self.right_perm
+        self.pre_left = sparse.block_diag(pre_left_diags, format='csr', dtype=zdtype)
+        self.pre_left = self.left_perm @ self.pre_left
+        self.right_perm = right_permutation(zbasis, problem)
+        self.pre_right = sparse.block_diag(pre_right_diags, format='csr', dtype=zdtype)
+        self.pre_right = self.pre_right @ self.right_perm
         LHS_matrices = {name: self.left_perm @ fastblock(LHS_blocks[name]).tocsr() for name in names}
 
         # Store minimal-entry matrices for fast dot products
@@ -348,10 +349,14 @@ def left_permutation(zbasis, bcs, eqs):
         L1 = []
         for subbasis in zbasis.subbases:
             L2 = []
-            if (subbasis is zbasis.subbases[-1]) and (not eq['differential']):
+            # Determine number of coefficients
+            if eq['LHS'].meta[zbasis.name]['constant']:
+                coeff_size = 1
+            elif (subbasis is zbasis.subbases[-1]) and (not eq['differential']):
                 coeff_size = subbasis.coeff_size
             else:
                 coeff_size = subbasis.coeff_size - 1
+            # Record indeces
             for coeff in range(coeff_size):
                 L2.append(i)
                 i += 1
@@ -374,7 +379,7 @@ def left_permutation(zbasis, bcs, eqs):
     return sparse_perm(indeces, len(indeces)).T
 
 
-def right_permutation(zbasis, variables):
+def right_permutation(zbasis, problem):
     """
     Right permutation inverting variable nesting:
         Input: Variables > Subbases > modes
@@ -383,11 +388,17 @@ def right_permutation(zbasis, variables):
     # Compute list heirarchy of indeces
     i = 0
     L0 = []
-    for var in variables:
+    for var in problem.variables:
         L1 = []
         for subbasis in zbasis.subbases:
             L2 = []
-            for coeff in range(subbasis.coeff_size):
+            # Determine number of coefficients
+            if problem.meta[var][zbasis.name]['constant']:
+                coeff_size = 1
+            else:
+                coeff_size = subbasis.coeff_size
+            # Record indeces
+            for coeff in range(coeff_size):
                 L2.append(i)
                 i += 1
             L1.append(L2)
@@ -396,7 +407,7 @@ def right_permutation(zbasis, variables):
     indeces = []
     L1max = len(L0)
     L2max = max(len(L1) for L1 in L0)
-    L3max = max(len(L2) for L2 in L1 for L1 in L0)
+    L3max = max(len(L2) for L1 in L0 for L2 in L1)
     for n3 in range(L3max):
         for n2 in range(L2max):
             for n1 in range(L1max):
