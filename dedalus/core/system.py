@@ -75,11 +75,11 @@ class FieldSystem(CoeffSystem):
         # Allocate data for joined coefficients
         pencil_length = len(fields) * zbasis.coeff_size
         super().__init__(pencil_length, domain)
-        # Create slices for each field's data
-        self.slices = {}
+        # Create views for each field's data
+        self.views = {}
         stride = zbasis.coeff_size
         for i, f in enumerate(fields):
-            self.slices[f] = slice(i*stride, (i+1)*stride, None)
+            self.views[f] = self.data[..., i*stride:(i+1)*stride]
         # Attributes
         self.domain = domain
         self.fields = fields
@@ -93,18 +93,16 @@ class FieldSystem(CoeffSystem):
 
     def gather(self):
         """Copy fields into system buffer."""
-        data = self.data
-        slices = self.slices
+        views = self.views
         for field in self.fields:
             field.require_coeff_space()
-            np.copyto(data[..., slices[field]], field.data)
+            np.copyto(views[field], field.data)
 
     def scatter(self):
         """Extract fields from system buffer."""
-        data = self.data
-        slices = self.slices
+        views = self.views
         coeff_layout = self.domain.dist.coeff_layout
         for field in self.fields:
             field.layout = coeff_layout
-            np.copyto(field.data, data[..., slices[field]])
+            np.copyto(field.data, views[field])
 
