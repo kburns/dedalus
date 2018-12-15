@@ -210,6 +210,11 @@ class ImplicitBasis(Basis):
         DNR = sparse.eye(1, N, dtype=self.coeff_dtype, format='csr')
         return DNR.tocsr()
 
+    @CachedAttribute
+    def DropNonfirstRows(self):
+        """Matrix dropping non-constant rows."""
+        return self.DropNonconstantRows
+
     def NCC(self, coeffs, cutoff, max_terms):
         """Build NCC multiplication matrix."""
         if max_terms is None:
@@ -1473,7 +1478,7 @@ class Compound(ImplicitBasis):
 
     @CachedAttribute
     def DropMatchRows(self):
-        """Matrix dropping last row from each subbasis."""
+        """Matrix dropping last row from each subbasis except the last."""
         sizes = [subbasis.coeff_size for subbasis in self.subbases]
         blocks = [sparse.eye(n-1, n, dtype=self.coeff_dtype) for n in sizes[:-1]]
         blocks.append(sparse.eye(sizes[-1], sizes[-1], dtype=self.coeff_dtype))
@@ -1485,6 +1490,19 @@ class Compound(ImplicitBasis):
         sizes = [subbasis.coeff_size for subbasis in self.subbases]
         blocks = [sparse.eye(n-1, n, dtype=self.coeff_dtype) for n in sizes]
         return sparse.block_diag(blocks, format='csr')
+
+    @CachedAttribute
+    def DropNonconstantRows(self):
+        """Matrix dropping non-constant rows."""
+        blocks = [subbasis.DropNonconstantRows for subbasis in self.subbases]
+        return sparse.block_diag(blocks, format='csr')
+
+    @CachedAttribute
+    def DropNonfirstRows(self):
+        """Matrix dropping all rows except constant from first subbasis."""
+        N = self.coeff_size
+        DNR = sparse.eye(1, N, dtype=self.coeff_dtype, format='csr')
+        return DNR.tocsr()
 
     @CachedAttribute
     def MatchRows(self):

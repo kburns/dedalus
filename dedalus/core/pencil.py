@@ -233,7 +233,7 @@ class Pencil:
 
             # Build left preconditioner block
             if eq['LHS'].meta[zbasis.name]['constant']:
-                PL = zbasis.DropNonconstantRows
+                PL = zbasis.DropNonfirstRows
             elif eq['differential'] and compound:
                 PL = zbasis.DropLastRows @ zbasis.Precondition
             elif eq['differential']:
@@ -351,7 +351,10 @@ def left_permutation(zbasis, bcs, eqs):
             L2 = []
             # Determine number of coefficients
             if eq['LHS'].meta[zbasis.name]['constant']:
-                coeff_size = 1
+                if (subbasis is zbasis.subbases[0]):
+                    coeff_size = 1
+                else:
+                    coeff_size = 0
             elif (subbasis is zbasis.subbases[-1]) and (not eq['differential']):
                 coeff_size = subbasis.coeff_size
             else:
