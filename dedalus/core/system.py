@@ -29,6 +29,8 @@ class CoeffSystem:
     """
 
     def __init__(self, pencil_length, domain):
+        self.pencil_length = pencil_length
+        self.domain = domain
         # Allocate data for joined coefficients
         shape = domain.local_coeff_shape.copy()
         shape[-1] = pencil_length
