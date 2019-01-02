@@ -88,7 +88,7 @@ dt = 0.125
 # Integration parameters
 solver.stop_sim_time = 25
 solver.stop_wall_time = 30 * 60.
-solver.stop_iteration = np.inf
+solver.stop_iteration = 100
 
 # Analysis
 snapshots = solver.evaluator.add_file_handler('snapshots', sim_dt=0.25, max_writes=50)

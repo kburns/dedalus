@@ -17,6 +17,9 @@ from ..tools.progress import log_progress
 import logging
 logger = logging.getLogger(__name__.split('.')[-1])
 
+from ..tools.config import config
+STORE_PRE_RIGHT = config['linear algebra'].getboolean('store_pre_right')
+
 
 def build_pencils(domain):
     """
@@ -111,7 +114,6 @@ class Pencil:
             matrix.data[np.abs(matrix.data) < problem.entry_cutoff] = 0
             matrix.eliminate_zeros()
             setattr(self, name, matrix.tocsr().copy())
-
 
         # Store expanded CSR matrices for fast combination
         self.LHS = zeros_with_pattern(*[matrices[name] for name in names]).tocsr()
@@ -292,17 +294,18 @@ class Pencil:
             # Store truncated matrix
             setattr(self, name, matrix.tocsr().copy())
 
-        # Store expanded right-preconditioned matrices
-        # Apply right preconditioning
-        if self.pre_right is not None:
-            for name in names:
-                LHS_matrices[name] = LHS_matrices[name] @ self.pre_right
-        # Build expanded LHS matrix to store matrix combinations
-        self.LHS = zeros_with_pattern(*LHS_matrices.values()).tocsr()
-        # Store expanded matrices for fast combination
-        for name, matrix in LHS_matrices.items():
-            matrix = expand_pattern(matrix, self.LHS)
-            setattr(self, name+'_exp', matrix.tocsr().copy())
+        if STORE_PRE_RIGHT:
+            # Store expanded right-preconditioned matrices
+            # Apply right preconditioning
+            if self.pre_right is not None:
+                for name in names:
+                    LHS_matrices[name] = LHS_matrices[name] @ self.pre_right
+            # Build expanded LHS matrix to store matrix combinations
+            self.LHS = zeros_with_pattern(*LHS_matrices.values()).tocsr()
+            # Store expanded matrices for fast combination
+            for name, matrix in LHS_matrices.items():
+                matrix = expand_pattern(matrix, self.LHS)
+                setattr(self, name+'_exp', matrix.tocsr().copy())
 
 
 def fastblock(blocks):

@@ -25,6 +25,7 @@ from ..tools.sparse import scipy_sparse_eigs
 from ..tools.config import config
 PERMC_SPEC = config['linear algebra']['permc_spec']
 USE_UMFPACK = config['linear algebra'].getboolean('use_umfpack')
+STORE_PRE_RIGHT = config['linear algebra'].getboolean('store_pre_right')
 
 import logging
 logger = logging.getLogger(__name__.split('.')[-1])
@@ -126,9 +127,15 @@ class EigenvalueSolver:
             cacheid = None
         pencil.build_matrices(self.problem, ['M', 'L'], cacheid=cacheid)
         # Solve as sparse general eigenvalue problem
-        self.eigenvalues, self.eigenvectors = scipy_sparse_eigs(A=pencil.L_exp, B=-pencil.M_exp, N=N, target=target, **kw)
+        if STORE_PRE_RIGHT:
+            A = pencil.L_exp
+            B = -pencil.M_exp
+        else:
+            A = pencil.L @ pencil.pre_right
+            B = -pencil.M @ pencil.pre_right
+        self.eigenvalues, self.eigenvectors = scipy_sparse_eigs(A=A, B=B, N=N, target=target, **kw)
         if pencil.pre_right is not None:
-            self.eigenvectors = pencil.pre_right * self.eigenvectors
+            self.eigenvectors = pencil.pre_right @ self.eigenvectors
         self.eigenvalue_pencil = pencil
 
     def set_state(self, index):
@@ -205,11 +212,14 @@ class LinearBoundaryValueSolver:
 
         # Solve system for each pencil, updating state
         for p in self.pencils:
-            A = p.L_exp
-            b = p.pre_left * self.F.get_pencil(p)
+            if STORE_PRE_RIGHT:
+                A = p.L_exp
+            else:
+                A = p.L @ p.pre_right
+            b = p.pre_left @ self.F.get_pencil(p)
             x = linalg.spsolve(A, b, use_umfpack=USE_UMFPACK, permc_spec=PERMC_SPEC)
             if p.pre_right is not None:
-                x = p.pre_right * x
+                x = p.pre_right @ x
             self.state.set_pencil(p, x)
         self.state.scatter()
 
@@ -272,11 +282,14 @@ class NonlinearBoundaryValueSolver:
         pencil.build_matrices(self.pencils, self.problem, ['dF'])
         # Solve system for each pencil, updating perturbations
         for p in self.pencils:
-            A = p.L_exp - p.dF_exp
-            b = p.pre_left * self.F.get_pencil(p)
+            if STORE_PRE_RIGHT:
+                A = p.L_exp - p.dF_exp
+            else:
+                A = (p.L - p.dF) @ p.pre_right
+            b = p.pre_left @ self.F.get_pencil(p)
             x = linalg.spsolve(A, b, use_umfpack=USE_UMFPACK, permc_spec=PERMC_SPEC)
             if p.pre_right is not None:
-                x = p.pre_right * x
+                x = p.pre_right @ x
             self.perturbations.set_pencil(p, x)
         self.perturbations.scatter()
         # Update state

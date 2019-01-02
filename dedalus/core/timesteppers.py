@@ -15,6 +15,7 @@ from ..tools.config import config
 STORE_LU = config['linear algebra'].getboolean('store_LU')
 PERMC_SPEC = config['linear algebra']['permc_spec']
 USE_UMFPACK = config['linear algebra'].getboolean('use_umfpack')
+STORE_PRE_RIGHT = config['linear algebra'].getboolean('store_pre_right')
 
 
 class MultistepIMEX:
@@ -143,17 +144,24 @@ class MultistepIMEX:
             pRHS = RHS.get_pencil(p)
             if STORE_LU:
                 if update_LHS:
-                    np.copyto(p.LHS.data, a0*p.M_exp.data + b0*p.L_exp.data)
-                    p.LHS_LU = linalg.splu(p.LHS.tocsc(), permc_spec=PERMC_SPEC)
-                pLHS = p.LHS_LU
-                pX = pLHS.solve(pRHS)
+                    if STORE_PRE_RIGHT:
+                        pLHS = p.LHS
+                        np.copyto(pLHS.data, a0*p.M_exp.data + b0*p.L_exp.data)
+                    else:
+                        pLHS = (a0*p.M + b0*p.L) @ p.pre_right
+                    p.LHS_LU = linalg.splu(pLHS.tocsc(), permc_spec=PERMC_SPEC)
+                pX = p.LHS_LU.solve(pRHS)
                 if p.pre_right is not None:
-                    pX = p.pre_right * pX
+                    pX = p.pre_right @ pX
             else:
-                np.copyto(p.LHS.data, a0*p.M_exp.data + b0*p.L_exp.data)
-                pX = linalg.spsolve(p.LHS, pRHS, use_umfpack=USE_UMFPACK, permc_spec=PERMC_SPEC)
+                if STORE_PRE_RIGHT:
+                    pLHS = p.LHS
+                    np.copyto(pLHS.data, a0*p.M_exp.data + b0*p.L_exp.data)
+                else:
+                    pLHS = (a0*p.M + b0*p.L) @ p.pre_right
+                pX = linalg.spsolve(pLHS, pRHS, use_umfpack=USE_UMFPACK, permc_spec=PERMC_SPEC)
                 if p.pre_right is not None:
-                    pX = p.pre_right * pX
+                    pX = p.pre_right @ pX
             state.set_pencil(p, pX)
 
         # Update solver
@@ -565,17 +573,24 @@ class RungeKuttaIMEX:
                 # Construct LHS(n,i)
                 if STORE_LU:
                     if update_LHS:
-                        np.copyto(p.LHS.data, p.M_exp.data + (k*H[i,i])*p.L_exp.data)
-                        p.LHS_LU[i] = linalg.splu(p.LHS.tocsc(), permc_spec=PERMC_SPEC)
-                    pLHS = p.LHS_LU[i]
-                    pX = pLHS.solve(pRHS)
+                        if STORE_PRE_RIGHT:
+                            pLHS = p.LHS
+                            np.copyto(pLHS.data, p.M_exp.data + (k*H[i,i])*p.L_exp.data)
+                        else:
+                            pLHS = (p.M + (k*H[i,i])*p.L) @ p.pre_right
+                        p.LHS_LU[i] = linalg.splu(pLHS.tocsc(), permc_spec=PERMC_SPEC)
+                    pX = p.LHS_LU[i].solve(pRHS)
                     if p.pre_right is not None:
-                        pX = p.pre_right * pX
+                        pX = p.pre_right @ pX
                 else:
-                    np.copyto(p.LHS.data, p.M_exp.data + (k*H[i,i])*p.L_exp.data)
-                    pX = linalg.spsolve(p.LHS, pRHS, use_umfpack=USE_UMFPACK, permc_spec=PERMC_SPEC)
+                    if STORE_PRE_RIGHT:
+                        pLHS = p.LHS
+                        np.copyto(pLHS.data, p.M_exp.data + (k*H[i,i])*p.L_exp.data)
+                    else:
+                        pLHS = (p.M + (k*H[i,i])*p.L) @ p.pre_right
+                    pX = linalg.spsolve(pLHS, pRHS, use_umfpack=USE_UMFPACK, permc_spec=PERMC_SPEC)
                     if p.pre_right is not None:
-                        pX = p.pre_right * pX
+                        pX = p.pre_right @ pX
                 state.set_pencil(p, pX)
             solver.sim_time = sim_time_0 + k*c[i]
 
