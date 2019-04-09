@@ -5,7 +5,7 @@ Class for centralized evaluation of expression trees.
 
 import os
 import re
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 import pathlib
 import h5py
 import shutil
@@ -50,6 +50,11 @@ class Evaluator:
         self.vars = vars
         self.handlers = []
         self.groups = defaultdict(list)
+
+    def reset(self):
+        """Reset to initial state."""
+        for handler in self.handlers:
+            handler.reset()
 
     def add_dictionary_handler(self, **kw):
         """Create a dictionary handler and add to evaluator."""
@@ -214,16 +219,17 @@ class Handler:
     """
 
     def __init__(self, domain, vars, group=None, wall_dt=np.inf, sim_dt=np.inf, iter=np.inf):
-
-        # Attributes
         self.domain = domain
         self.vars = vars
         self.group = group
         self.wall_dt = wall_dt
         self.sim_dt = sim_dt
         self.iter = iter
-
         self.tasks = []
+        self.reset()
+
+    def reset(self):
+        """Reset to initial state."""
         # Set initial divisors to be scheduled for sim_time, iteration = 0
         self.last_wall_div = -1
         self.last_sim_div = -1
@@ -253,7 +259,6 @@ class Handler:
 
     def add_tasks(self, tasks, **kw):
         """Add multiple tasks."""
-
         name = kw.pop('name', '')
         for task in tasks:
             tname = name + str(task)
@@ -261,7 +266,6 @@ class Handler:
 
     def add_system(self, system, **kw):
         """Add fields from a FieldSystem."""
-
         self.add_tasks(system.fields, **kw)
 
 
@@ -270,7 +274,7 @@ class DictionaryHandler(Handler):
 
     def __init__(self, *args, **kw):
         Handler.__init__(self, *args, **kw)
-        self.fields = dict()
+        self.fields = OrderedDict()
 
     def __getitem__(self, item):
         return self.fields[item]
@@ -288,14 +292,11 @@ class SystemHandler(Handler):
 
     def build_system(self):
         """Build FieldSystem and set task outputs."""
-
         nfields = len(self.tasks)
         names = ['sys'+str(i) for i in range(nfields)]
         self.system = FieldSystem(names, self.domain)
-
         for i, task in enumerate(self.tasks):
             task['operator'].out = self.system.fields[i]
-
         return self.system
 
     def process(self, **kw):
