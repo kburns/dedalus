@@ -81,9 +81,9 @@ def coupled_solver(Nx, Ny, dtype):
     return solver
 
 
-solvers = {'diagonal': diagonal_solver(8, 512, np.float64),
-           'block': block_solver(8, 128, np.float64),
-           'coupled': coupled_solver(8, 128, np.float64)}
+solvers = {'diagonal': diagonal_solver(8, 32, np.float64),
+           'block': block_solver(8, 32, np.float64),
+           'coupled': coupled_solver(8, 32, np.float64)}
 
 ids, solvers = list(zip(*solvers.items()))
 

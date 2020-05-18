@@ -208,3 +208,21 @@ class BlockInverse(BandedSolver):
     def _solve_diag(self, vector):
         return self.matrix_inv_diagonal * vector
 
+
+#@add_solver
+class GMRES(SparseSolver):
+    """GMRES iterative solve."""
+
+    def __init__(self, matrix, solver=None, presolver=SuperluNaturalFactorized):
+        self.matrix = matrix.copy()
+        self.P = presolver(matrix, solver=solver)
+        self.Pi = spla.LinearOperator(matrix.shape, self.P.solve)
+
+    def solve(self, vector, **kw):
+        if 'tol' not in kw:
+            kw['tol'] = 1e-6
+        if 'atol' not in kw:
+            kw['atol'] = 0
+        x, info = spla.gmres(self.matrix, vector, M=self.Pi, **kw)
+        return x
+
