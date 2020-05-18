@@ -5,6 +5,8 @@ Tools for array manipulations.
 
 import numpy as np
 from scipy import sparse
+from functools import reduce
+import operator
 
 
 def interleaved_view(data):
@@ -92,6 +94,44 @@ def apply_matrix(matrix, array, axis, **kw):
     if sparse.isspmatrix(matrix):
         matrix = matrix.todense()
     out = np.einsum(matrix, mat_sig, array, arr_sig, out_sig, **kw)
+    return out
+
+
+def prod(arg):
+    if arg:
+        return reduce(operator.mul, arg)
+    else:
+        return 1
+
+
+def reduced_view(data, axis, dim=1):
+    shape = data.shape
+    Na = (int(prod(shape[:axis])),)
+    Nb = shape[axis:axis+dim]
+    Nc = (int(prod(shape[axis+dim:])),)
+    return data.reshape(Na+Nb+Nc)
+
+
+def apply_sparse(matrix, array, axis, out=None, add=False):
+    from scipy.sparse import _sparsetools
+    # Create output
+    if out is None:
+        add = True
+        shape = list(array.shape)
+        shape[axis] = matrix.shape[0]
+        out = np.zeros(shape, dtype=np.result_type(matrix.dtype, array.dtype))
+    if not add:
+        out[:] = 0
+    # Reduced views
+    array3 = reduced_view(array, axis)
+    out3 = reduced_view(out, axis)
+    # Loop over outer index
+    fn = getattr(_sparsetools, matrix.format + '_matvecs')
+    M, N = matrix.shape
+    n_vecs = array3.shape[2]
+    for i in range(array3.shape[0]):
+        fn(M, N, n_vecs, matrix.indptr, matrix.indices, matrix.data,
+        array3[i], out3[i])
     return out
 
 
