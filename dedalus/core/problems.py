@@ -512,6 +512,23 @@ class EigenvalueProblem(ProblemBase):
 
         σM.X + L.X = 0
 
+    This class supports linear eigenvalue problems arising from the linearization
+    of nonlinear eigenvalue problems around a reference state.  The solver supports
+    nonlinear problems of the general form
+
+        M.dt(X) + L.X = F(X)
+
+    Taking X = X0 + X1, and linearizing around the stationary state X0, this becomes
+
+        M.dt(X1) + L.X0 + L.X1 = F(X0) + dF(X0).X1
+        M.dt(X1) + L.X1 - dF(X0).X1 = F(X0) - L.X0
+
+    The RHS is required to be homogeneous (within a specifiable tolerance), requiring
+    that the background state X0 is a valid stationary state.  Finally, the linear
+    problem solved for the perturbations is then
+
+        M.dt(X1) + L.X1 - dF(X0).X1 = 0
+
     """
 
     solver_class = solvers.EigenvalueSolver
